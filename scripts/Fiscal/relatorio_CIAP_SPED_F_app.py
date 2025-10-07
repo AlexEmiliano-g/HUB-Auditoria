@@ -1,4 +1,4 @@
-# ===== ANALISADOR SPED FISCAL v2.2 - BLOCO C500 (VERSÃO DE PRECISÃO) =====
+# ===== ANALISADOR SPED FISCAL v2.3 - BLOCO G (CIAP COM DESCRIÇÃO DO 0300) (MODIFICADO PARA O HUB) =====
 
 import sys
 import os
@@ -13,6 +13,7 @@ from PyQt6.QtCore import Qt
 
 # ==============================================================================
 # PARTE 1: LÓGICA DE PROCESSAMENTO DO ARQUIVO SPED
+# (NENHUMA ALTERAÇÃO NECESSÁRIA AQUI)
 # ==============================================================================
 
 def parse_line(line):
@@ -43,21 +44,24 @@ def format_date(date_str):
             return ''
     return ''
 
-# Dicionário para traduzir o código da Classe de Consumo
-CLASSE_CONSUMO_MAP = {
-    '01': '01 - Comercial', '02': '02 - Consumo Próprio',
-    '03': '03 - Iluminação Pública', '04': '04 - Industrial',
-    '05': '05 - Poder Público', '06': '06 - Residencial',
-    '07': '07 - Rural', '08': '08 - Serviço Público'
+# Dicionário para traduzir o tipo de movimentação do CIAP
+TIPO_MOV_MAP = {
+    'MC': 'MC - Imobilização de Mercadoria para Uso/Consumo',
+    'IM': 'IM - Imobilização de Insumo/Matéria-Prima',
+    'CI': 'CI - Conclusão de Obra (componente)',
+    'SI': 'SI - Saldo Inicial de Bens',
+    'AT': 'AT - Imobilização vinda de Ativo Circulante',
+    'PE': 'PE - Imobilização de bem objeto de Contrato de Arrendamento',
+    'OU': 'OU - Outras Entradas'
 }
 
-def gerar_relatorio_bloco_c500(lista_arquivos):
-    """Função principal que implementa a lógica de extração para o Bloco C500."""
+def gerar_relatorio_bloco_g(lista_arquivos):
+    """Função principal que implementa a lógica de extração para o Bloco G."""
     
     # --- ETAPA 1: Mapear dados de apoio de todos os arquivos ---
-    mapa_empresa, mapa_participantes = {}, {}
+    mapa_empresa, mapa_participantes, mapa_bens_ciap = {}, {}, {}
     
-    print("Iniciando Etapa 1: Mapeamento de dados de apoio (0000, 0150)...")
+    print("Iniciando Etapa 1: Mapeamento de dados de apoio (0000, 0150, 0300)...")
     for filepath in lista_arquivos:
         nome_arquivo = os.path.basename(filepath)
         print(f"  - Mapeando arquivo: {nome_arquivo}")
@@ -75,78 +79,76 @@ def gerar_relatorio_bloco_c500(lista_arquivos):
                 elif reg == '0150':
                     cod_part = safe_get(campos, 1)
                     if cod_part and cod_part not in mapa_participantes:
-                        mapa_participantes[cod_part] = {
-                            'Nome Participante': safe_get(campos, 2), 
-                            'CNPJ/CPF Participante': safe_get(campos, 4) or safe_get(campos, 5),
-                        }
+                        mapa_participantes[cod_part] = {'Nome Participante': safe_get(campos, 2)}
+                elif reg == '0300':
+                    cod_bem = safe_get(campos, 1)
+                    if cod_bem and cod_bem not in mapa_bens_ciap:
+                        mapa_bens_ciap[cod_bem] = {'Descrição do Bem/Componente': safe_get(campos, 3)}
     
-    # --- ETAPA 2: Processar Bloco C500 e montar o relatório ---
+    # --- ETAPA 2: Processar Bloco G e montar o relatório ---
     report_rows = []
-    print("\nIniciando Etapa 2: Processamento do Bloco C500...")
+    print("\nIniciando Etapa 2: Processamento do Bloco G...")
     for filepath in lista_arquivos:
         nome_arquivo = os.path.basename(filepath)
         print(f"  - Processando arquivo: {nome_arquivo}")
         info_empresa = mapa_empresa.get(nome_arquivo, {})
         
         with open(filepath, 'r', encoding='latin-1') as f:
-            current_c500_data = {}
+            current_g125_data = {}
+            
             for line in f:
                 campos = parse_line(line)
-                if not campos or not campos[0].startswith('C5'): continue
+                if not campos: continue
                 reg = campos[0]
                 
-                if reg == 'C500':
-                    # --- MAPEAMENTO CORRIGIDO E VALIDADO ---
-                    cod_part = safe_get(campos, 3) # Campo 04: COD_PART
-                    participante = mapa_participantes.get(cod_part, {})
-                    cod_classe = safe_get(campos, 8) # Campo 09: COD_CONS
+                if not reg.startswith('G13') and not reg.startswith('G14') and current_g125_data:
+                    report_rows.append(current_g125_data)
+                    current_g125_data = {}
+
+                if reg == 'G125':
+                    cod_item = safe_get(campos, 1)
+                    bem_info = mapa_bens_ciap.get(cod_item, {})
+                    tipo_mov_cod = safe_get(campos, 3)
                     
-                    current_c500_data = {
+                    current_g125_data = {
                         **info_empresa,
-                        'Tipo Operação': 'Entrada' if safe_get(campos, 1) == '0' else 'Saída',
-                        'Código Participante': cod_part,
-                        'Nome Participante': participante.get('Nome Participante', ''),
-                        'Modelo Documento': safe_get(campos, 4), # Campo 05: COD_MOD
-                        'Situação Documento': safe_get(campos, 5), # Campo 06: COD_SIT
-                        'Série': safe_get(campos, 6), # Campo 07: SER
-                        'SubSérie': safe_get(campos, 7), # Campo 08: SUB
-                        'Classe de Consumo': CLASSE_CONSUMO_MAP.get(cod_classe, cod_classe),
-                        'Número Documento': safe_get(campos, 9), # Campo 10: NUM_DOC
-                        'Data Documento': format_date(safe_get(campos, 10)), # Campo 11: DT_DOC
-                        'Data Entrada/Saída': format_date(safe_get(campos, 11)), # Campo 12: DT_E_S
-                        'Vlr Documento': safe_float_convert(safe_get(campos, 12)), # Campo 13: VL_DOC
-                        'Vlr Desconto': safe_float_convert(safe_get(campos, 13)), # Campo 14: VL_DESC
-                        'Vlr PIS': safe_float_convert(safe_get(campos, 22)), # Campo 23: VL_PIS
-                        'Vlr COFINS': safe_float_convert(safe_get(campos, 26)), # Campo 27: VL_COFINS
+                        'Código do Bem/Componente': cod_item,
+                        'Descrição do Bem/Componente': bem_info.get('Descrição do Bem/Componente', 'BEM NÃO CADASTRADO NO REG 0300'),
+                        'Data da Movimentação': format_date(safe_get(campos, 2)),
+                        'Tipo de Movimentação': TIPO_MOV_MAP.get(tipo_mov_cod, tipo_mov_cod),
+                        'Valor ICMS da Operação': safe_float_convert(safe_get(campos, 4)),
+                        'Valor Parcela Apropriável': safe_float_convert(safe_get(campos, 9)),
+                        'Nº Parcela / Total Parcelas': safe_get(campos, 8),
                     }
-                elif reg == 'C590' and current_c500_data:
-                    row = {
-                        **current_c500_data,
-                        'CST ICMS': safe_get(campos, 1),
-                        'CFOP': safe_get(campos, 2),
-                        'Alíquota ICMS (%)': safe_float_convert(safe_get(campos, 3)),
-                        'Vlr Operação': safe_float_convert(safe_get(campos, 4)),
-                        'Vlr Base Cálculo ICMS': safe_float_convert(safe_get(campos, 5)),
-                        'Vlr ICMS': safe_float_convert(safe_get(campos, 6)),
-                        'Vlr Base Cálculo ICMS ST': safe_float_convert(safe_get(campos, 7)),
-                        'Vlr ICMS ST': safe_float_convert(safe_get(campos, 8)),
-                    }
-                    report_rows.append(row)
+                elif reg == 'G130' and current_g125_data:
+                    cod_part = safe_get(campos, 2)
+                    participante = mapa_participantes.get(cod_part, {})
+                    
+                    current_g125_data.update({
+                        'Nome do Participante': participante.get('Nome Participante', ''),
+                        'Modelo do Documento': safe_get(campos, 3),
+                        'Série': safe_get(campos, 4),
+                        'Número do Documento': safe_get(campos, 5),
+                        'Chave da NF-e': safe_get(campos, 6),
+                    })
+                    report_rows.append(current_g125_data)
+                    current_g125_data = {}
+
+            if current_g125_data:
+                report_rows.append(current_g125_data)
 
     if not report_rows:
-        raise ValueError("Nenhum registro C590 (detalhamento de contas) foi encontrado nos arquivos selecionados.")
+        raise ValueError("Nenhum registro de movimentação de CIAP (G125) foi encontrado nos arquivos.")
 
     df_final = pd.DataFrame(report_rows)
     
     colunas_finais = [
-        'CNPJ', 'Inscrição Estadual', 'Período', 'Data Documento', 'Data Entrada/Saída', 
-        'Tipo Operação', 'Número Documento', 'Série', 'SubSérie', 'Modelo Documento', 
-        'Nome Participante', 'Classe de Consumo', 'Vlr Documento', 'Vlr Desconto', 
-        'CFOP', 'CST ICMS', 'Alíquota ICMS (%)', 'Vlr Operação', 
-        'Vlr Base Cálculo ICMS', 'Vlr ICMS', 
-        'Vlr Base Cálculo ICMS ST', 'Vlr ICMS ST',
-        'Vlr PIS', 'Vlr COFINS'
+        'CNPJ', 'Inscrição Estadual', 'Período', 'Data da Movimentação', 
+        'Código do Bem/Componente', 'Descrição do Bem/Componente', 'Tipo de Movimentação', 
+        'Nome do Participante', 'Modelo do Documento', 'Série', 'Número do Documento', 'Chave da NF-e',
+        'Valor ICMS da Operação', 'Nº Parcela / Total Parcelas', 'Valor Parcela Apropriável'
     ]
+    # Garante que todas as colunas existam antes de reordenar
     for col in colunas_finais:
         if col not in df_final.columns:
             df_final[col] = ''
@@ -155,16 +157,17 @@ def gerar_relatorio_bloco_c500(lista_arquivos):
 
 # ==============================================================================
 # PARTE 2: INTERFACE GRÁFICA (PyQt6)
+# (NENHUMA ALTERAÇÃO NECESSÁRIA AQUI)
 # ==============================================================================
 
-class SpedC500App(QWidget):
+class SpedCiapApp(QWidget):
     def __init__(self):
         super().__init__()
         self.selected_files = []
         self.initUI()
 
     def initUI(self):
-        self.setWindowTitle("Gerador de Relatório SPED Fiscal - Bloco C500")
+        self.setWindowTitle("Gerador de Relatório SPED Fiscal - Bloco G (CIAP)")
         self.setGeometry(200, 200, 700, 450)
         
         main_layout = QVBoxLayout(self)
@@ -179,7 +182,7 @@ class SpedC500App(QWidget):
         browse_button.clicked.connect(self.select_files)
         main_layout.addWidget(browse_button)
         
-        self.run_button = QPushButton("🚀 Gerar Relatório do Bloco C500")
+        self.run_button = QPushButton("🚀 Gerar Relatório CIAP (Bloco G)")
         self.run_button.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         self.run_button.clicked.connect(self.start_processing)
         main_layout.addWidget(self.run_button)
@@ -208,9 +211,9 @@ class SpedC500App(QWidget):
         QApplication.processEvents()
 
         try:
-            df_result = gerar_relatorio_bloco_c500(self.selected_files)
+            df_result = gerar_relatorio_bloco_g(self.selected_files)
             self.save_report(df_result)
-            self.status_label.setText("✅ Relatório consolidado do Bloco C500 gerado com sucesso!")
+            self.status_label.setText("✅ Relatório consolidado do Bloco G gerado com sucesso!")
         except Exception as e:
             self.status_label.setText(f"❌ Erro: {e}")
             QMessageBox.critical(self, "Erro de Processamento", f"Ocorreu um erro.\n\nDetalhes: {e}")
@@ -218,21 +221,37 @@ class SpedC500App(QWidget):
             self.run_button.setEnabled(True)
 
     def save_report(self, dataframe):
-        default_filename = f"Relatorio_Bloco_C500_{datetime.now().strftime('%Y%m%d')}.xlsx"
+        default_filename = f"Relatorio_Bloco_G_CIAP_{datetime.now().strftime('%Y%m%d')}.xlsx"
         save_path, _ = QFileDialog.getSaveFileName(self, "Salvar Relatório", default_filename, "Arquivos Excel (*.xlsx)")
         
         if save_path:
             try:
                 self.status_label.setText("Salvando arquivo Excel...")
                 QApplication.processEvents()
-                dataframe.to_excel(save_path, index=False, sheet_name="Bloco_C500")
+                dataframe.to_excel(save_path, index=False, sheet_name="Bloco_G_CIAP")
                 QMessageBox.information(self, "Sucesso", f"Relatório salvo em:\n{save_path}")
             except Exception as e:
                 self.status_label.setText(f"❌ Erro ao salvar o arquivo: {e}")
                 QMessageBox.critical(self, "Erro ao Salvar", f"Não foi possível salvar o arquivo.\n\nDetalhes: {e}")
 
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = SpedC500App()
+# ==============================================================================
+# PARTE 3: PONTO DE ENTRADA (MODIFICADO)
+# ==============================================================================
+
+def main():
+    """Função principal que inicia esta aplicação específica."""
+    # Reutiliza a instância da aplicação principal (do Hub) se ela existir.
+    # Caso contrário, cria uma nova para execução independente.
+    app = QApplication.instance() or QApplication(sys.argv)
+
+    # Cria e exibe a janela da aplicação.
+    window = SpedCiapApp()
     window.show()
+
+    # Retorna a aplicação e a janela para o chamador poder gerenciá-las.
+    return app, window
+
+# Este bloco permite que o script ainda seja executável de forma independente para testes
+if __name__ == '__main__':
+    app, window = main()
     sys.exit(app.exec())
