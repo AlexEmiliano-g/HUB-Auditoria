@@ -14,8 +14,9 @@ from PyQt6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QPushButton, QTextEdit, QLabel, QListWidgetItem
 )
-from PyQt6.QtGui import QFont, QPixmap, QIcon
-from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer
+
+from PyQt6.QtGui import QFont, QPixmap, QIcon # type: ignore
+from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer # type: ignore
 
 # (O resto do seu código - resource_path, definições globais, stylesheet, Splash, Hub - permanece o mesmo)
 # ...
