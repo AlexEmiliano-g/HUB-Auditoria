@@ -124,6 +124,10 @@ from PyQt6.QtCore import (
 - Stylesheets CSS customizados
 
 ---
+#### 2. **PyQt6** 🖥️
+- **Versão:** Latest (6.0.0+)
+- **Propósito:** Framework GUI (Interface Gráfica)
+- **Módulos que usam:** Todos os arquivos `*_app.py`
 
 #### 3. **OpenPyXL** 📄
 - **Versão:** Latest (3.0.0+)
@@ -259,6 +263,9 @@ pip install openpyxl==3.10.0
 ```bash
 python -c "import pandas; import PyQt6; import openpyxl; print('OK')"
 ```
+  - `scripts/Contabilidade/tabulador_logic.py`
+  - `scripts/Fiscal/relatorio_*.py`
+  - `scripts/Analise/analise_fiscal_logic.py`
 
 ---
 
@@ -657,6 +664,9 @@ Para adicionar novas dependências, consulte a equipe de arquitetura do projeto.
 
 ---
 
+**Documento Gerado:** 19/05/2026  
+**Versão:** 1.0  
+**Status:** Completo
 **Documento Gerado:** 19/05/2026  
 **Versão:** 1.0  
 **Status:** Completo

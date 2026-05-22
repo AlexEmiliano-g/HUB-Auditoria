@@ -218,7 +218,7 @@ Exportar Resultado (XLSX)
 **Objetivo:** Gerar e analisar relatórios fiscais de diferentes formatos EFD-C e SPED-F.
 
 | Módulo | Tipo | Formato | Descrição |
-|--------|------|---------|-----------|
+ main
 | `relatorio_C100_EFD_C_app.py` | C100 | EFD-C | Registro de Operações com ICMS |
 | `relatorio_C100_SPED_F_app.py` | C100 | SPED-F | Registro de Operações com ICMS (Alimentar) |
 | `relatorio_C500_EFD_C_app.py` | C500 | EFD-C | Registro de Consolidação |
@@ -356,6 +356,12 @@ openpyxl
 - **NFe Namespace**: `http://www.portalfiscal.inf.br/nfe`
 - Utilizado em: `relatorio_XML_app.py`
 
+| `pandas` | Latest | Processamento de dados | Contabilidade, Fiscal, Análise |
+| `PyQt6` | Latest | Framework GUI | Todos |
+| `openpyxl` | Latest | Leitura/escrita Excel | Contabilidade, Fiscal, Análise |
+| `numpy` | Latest | Operações numéricas | Análise |
+| `matplotlib` | Latest | Geração de gráficos | Análise |
+
 ---
 
 ## 🎯 Padrões de Design Implementados
@@ -379,6 +385,9 @@ def main():
     window.show()
     return (app, window)
 ```
+
+### 2. **Factory Pattern**
+- Cada módulo expõe uma função `main()` que retorna a aplicação e janela
 
 ### 3. **Separação de Responsabilidades**
 - Padrão MVC Light:
