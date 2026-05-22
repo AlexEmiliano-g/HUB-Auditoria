@@ -106,7 +106,12 @@ class Hub(QWidget):
         logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         left_layout.addWidget(logo_label)
         self.sectors_list = QListWidget()
-        for setor in ["Contabilidade", "Fiscal"]:
+        
+        # --- MODIFICAÇÃO AQUI ---
+        # Adicionado "Análise" à lista de setores que o HUB irá procurar.
+        for setor in ["Contabilidade", "Fiscal", "Analise"]:
+        # --- FIM DA MODIFICAÇÃO ---
+            
             self.sectors_list.addItem(QListWidgetItem(setor))
         self.sectors_list.itemClicked.connect(self.load_scripts)
         left_layout.addWidget(self.sectors_list)
@@ -206,3 +211,4 @@ if __name__ == "__main__":
     QTimer.singleShot(2000, lambda: start_application(app, splash))
     
     sys.exit(app.exec())
+

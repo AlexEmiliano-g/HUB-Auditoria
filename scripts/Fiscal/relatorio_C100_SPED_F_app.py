@@ -212,7 +212,7 @@ class SpedReportApp(QWidget):
         browse_button.clicked.connect(self.select_files)
         main_layout.addWidget(browse_button)
         
-        self.run_button = QPushButton("🚀 Gerar Relatório Consolidado do Bloco C")
+        self.run_button = QPushButton("Gerar Relatório Consolidado do Bloco C")
         self.run_button.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         self.run_button.clicked.connect(self.start_processing)
         main_layout.addWidget(self.run_button)

@@ -9,11 +9,14 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 
-# Importa a lógica do outro arquivo
-from tabulador_logic import processar_arquivos_selecionados
+# Tratamento de caminhos para suportar a execucao tanto via HUB quanto standalone
+try:
+    from scripts.Contabilidade.tabulador_logic import processar_arquivos_selecionados, obter_nomes_sistemas
+except ModuleNotFoundError:
+    from tabulador_logic import processar_arquivos_selecionados, obter_nomes_sistemas
 
-# Define os sistemas disponíveis
-LISTA_SISTEMAS = ["Fuga", "Uniair"]
+# Carrega a lista de sistemas configurados no motor de logica de forma dinamica
+LISTA_SISTEMAS = obter_nomes_sistemas()
 
 class TabuladorPythonApp(QWidget):
     def __init__(self):
@@ -29,7 +32,7 @@ class TabuladorPythonApp(QWidget):
         main_layout.setSpacing(15)
         main_layout.setContentsMargins(20, 20, 20, 20)
 
-        # 1. Campo para seleção de múltiplos arquivos
+        # Componente de selecao de multiplos arquivos de entrada
         main_layout.addWidget(QLabel("1. Selecione um ou mais arquivos de balancete:"))
         self.file_list_widget = QListWidget()
         self.file_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
@@ -39,13 +42,13 @@ class TabuladorPythonApp(QWidget):
         browse_button.clicked.connect(self.browse_files)
         main_layout.addWidget(browse_button)
 
-        # 2. ADICIONADO: Menu dropdown para selecionar o sistema
+        # Menu dropdown alimentado pelo dicionario do tabulador_logic
         main_layout.addWidget(QLabel("2. Selecione o sistema:"))
         self.system_combo = QComboBox()
         self.system_combo.addItems(LISTA_SISTEMAS)
         main_layout.addWidget(self.system_combo)
 
-        # 3. Botão de Execução e Status
+        # Controle de disparo da tabulacao
         self.run_button = QPushButton("Iniciar Tabulação")
         self.run_button.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         self.run_button.clicked.connect(self.run_pure_python_tabulation)
@@ -78,7 +81,7 @@ class TabuladorPythonApp(QWidget):
         QApplication.processEvents()
 
         try:
-            # Pega o sistema selecionado no ComboBox
+            # Captura a opcao selecionada na combo para direcionamento do plugin correto
             sistema_selecionado = self.system_combo.currentText()
             
             dicionario_de_dfs = processar_arquivos_selecionados(self.arquivos_selecionados, sistema_selecionado)
@@ -87,10 +90,10 @@ class TabuladorPythonApp(QWidget):
                 raise ValueError("Nenhum dado foi processado. Verifique os arquivos de entrada.")
 
             self.salvar_planilha_final(dicionario_de_dfs)
-            self.status_label.setText("✅ Concluído! Planilha gerada com sucesso.")
+            self.status_label.setText("Concluido! Planilha gerada com sucesso.")
 
         except Exception as e:
-            self.status_label.setText("❌ Ocorreu um erro.")
+            self.status_label.setText("Ocorreu um erro no processamento.")
             QMessageBox.critical(self, "Erro durante o processamento", f"Ocorreu um erro.\n\nDetalhes: {e}")
         finally:
             self.run_button.setEnabled(True)
@@ -102,13 +105,27 @@ class TabuladorPythonApp(QWidget):
 
         if caminho_salvar:
             with pd.ExcelWriter(caminho_salvar, engine='openpyxl') as writer:
-                # Ordena as abas para que o Plano de Contas venha por último
+                # Ordenacao das abas geradas para manter padronizacao na escrita
                 for nome_aba in sorted(dicionario_dataframes.keys()):
                     dataframe = dicionario_dataframes[nome_aba]
                     dataframe.to_excel(writer, index=False, sheet_name=nome_aba)
             QMessageBox.information(self, "Sucesso", f"Arquivo salvo em:\n{caminho_salvar}")
 
 
+# Ponto de entrada obrigatorio exigido pelo hub.py para carregar a janela na interface central
+def main():
+    app = QApplication.instance()
+    
+    # Fallback para criacao de instancia caso o modulo seja chamado fora do HUB
+    if not app:
+        app = QApplication(sys.argv)
+        
+    window = TabuladorPythonApp()
+    window.show()
+    return app, window
+
+
+# Bloco para execucao direta e isolada do script (Modo de desenvolvimento/testes)
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     window = TabuladorPythonApp()
