@@ -105,10 +105,37 @@ class TabuladorPythonApp(QWidget):
 
         if caminho_salvar:
             with pd.ExcelWriter(caminho_salvar, engine='openpyxl') as writer:
-                # Ordenacao das abas geradas para manter padronizacao na escrita
                 for nome_aba in sorted(dicionario_dataframes.keys()):
                     dataframe = dicionario_dataframes[nome_aba]
                     dataframe.to_excel(writer, index=False, sheet_name=nome_aba)
+                    
+                    # --- INÍCIO DA PERFUMARIA: Auto-Ajuste de Largura das Colunas ---
+                    worksheet = writer.sheets[nome_aba]
+                    
+                    # Função auxiliar para pegar a letra da coluna (1 = A, 2 = B, 27 = AA...)
+                    def get_col_letter(n):
+                        string_col = ""
+                        while n > 0:
+                            n, remainder = divmod(n - 1, 26)
+                            string_col = chr(65 + remainder) + string_col
+                        return string_col
+
+                    for idx, col in enumerate(dataframe.columns):
+                        header_len = len(str(col))
+                        # Conta o tamanho máximo dos dados na coluna. Se vazia, assume 0.
+                        max_data_len = dataframe[col].astype(str).map(len).max() if not dataframe.empty else 0
+                        
+                        # Define a largura pegando o maior valor (cabeçalho ou dados) + 3 de respiro visual
+                        max_len = max(header_len, max_data_len) + 3
+                        
+                        # Trava em 60 para não deixar uma coluna infinitamente larga (ex: textos de Avisos/Erros)
+                        if max_len > 60:
+                            max_len = 60
+                            
+                        col_letter = get_col_letter(idx + 1)
+                        worksheet.column_dimensions[col_letter].width = max_len
+                    # --- FIM DA PERFUMARIA ---
+
             QMessageBox.information(self, "Sucesso", f"Arquivo salvo em:\n{caminho_salvar}")
 
 

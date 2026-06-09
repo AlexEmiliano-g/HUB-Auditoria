@@ -1,8 +1,8 @@
 # Tenta importar os sistemas (suporta tanto o uso pelo HUB quanto isolado)
 try:
-    from scripts.Contabilidade.sistemas import fuga, uniair
+    from scripts.Contabilidade.sistemas import fuga, uniair, uniodontofederacao
 except ModuleNotFoundError:
-    from sistemas import fuga, uniair
+    from sistemas import fuga, uniair, uniodontofederacao
 
 # ==============================================================================
 # REGISTRO DE SISTEMAS
@@ -11,7 +11,8 @@ except ModuleNotFoundError:
 # ==============================================================================
 SISTEMAS_REGISTRADOS = {
     "Fuga": fuga.processar,
-    "Uniair": uniair.processar
+    "Uniair": uniair.processar,
+    "UniOdonto Federação": uniodontofederacao.processar
 }
 
 def obter_nomes_sistemas():
