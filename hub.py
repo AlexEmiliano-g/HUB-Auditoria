@@ -1,5 +1,5 @@
 # ==============================================================================
-# HUB.PY - VERSÃO FINAL COM CORREÇÃO DE REFERÊNCIA DE JANELA
+# HUB.PY - VERSÃO FINAL COM CORREÇÃO DE REFERÊNCIA DE JANELA E NOMES NO MENU
 # ==============================================================================
 
 import sys
@@ -18,8 +18,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFont, QPixmap, QIcon # type: ignore
 from PyQt6.QtCore import Qt, QPropertyAnimation, QTimer # type: ignore
 
-# (O resto do seu código - resource_path, definições globais, stylesheet, Splash, Hub - permanece o mesmo)
-# ...
 def resource_path(relative_path):
     try:
         base_path = sys._MEIPASS
@@ -136,6 +134,7 @@ class Hub(QWidget):
         self.log.setReadOnly(True)
         right_layout.addWidget(self.log, 1)
         main_layout.addWidget(right_panel, 1)
+
     def load_scripts(self, item):
         setor = item.text()
         setor_path = resource_path(os.path.join("scripts", setor))
@@ -143,12 +142,26 @@ class Hub(QWidget):
         if not os.path.exists(setor_path):
             self.log.append(f"AVISO: A pasta para o setor '{setor}' não foi encontrada.")
             return
+            
         for script_filename in sorted(os.listdir(setor_path)):
             if script_filename.endswith("_app.py"):
+                # Tratamento de nome básico
                 display_name = script_filename.replace("_app.py", "").replace("_", " ").capitalize()
+                
+                # DICIONÁRIO DE TRADUÇÃO (Corrige nomes com acentos para a Interface)
+                nomes_bonitos = {
+                    "Analise evolucao": "Análise de Evolução"
+                    # Pode adicionar outros mapeamentos aqui, ex: "Relatorio c100": "Relatório C100"
+                }
+                
+                # Aplica o nome embelezado se existir no dicionário
+                if display_name in nomes_bonitos:
+                    display_name = nomes_bonitos[display_name]
+
                 list_item = QListWidgetItem(display_name)
                 list_item.setData(Qt.ItemDataRole.UserRole, script_filename)
                 self.scripts_list.addItem(list_item)
+
     def run_script(self):
         setor_item = self.sectors_list.currentItem()
         script_item = self.scripts_list.currentItem()
@@ -211,4 +224,3 @@ if __name__ == "__main__":
     QTimer.singleShot(2000, lambda: start_application(app, splash))
     
     sys.exit(app.exec())
-
