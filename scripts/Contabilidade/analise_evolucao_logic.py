@@ -14,7 +14,7 @@ def parse_perc(val_str):
         return 0.0
 
 def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
-    if regras is None: regras = {} # CORREÇÃO AQUI
+    if regras is None: regras = {}
     
     log_erros = []
     inclusao_inteligente = opcoes.get('inclusao_inteligente', True)
@@ -175,26 +175,51 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     df_plano['Indice'] = range(1, len(df_plano) + 1)
 
     # =========================================================================
-    # 5. DIAGNÓSTICO DE MALHA FINA E CALCULO DE BASES (FATURAMENTO)
+    # 5. DIAGNÓSTICO DE MALHA FINA E CÁLCULO DE BASES (FATURAMENTO)
     # =========================================================================
     df_pivot_mov = df_consolidado.pivot_table(index='Conta', columns='Mês', values='Movimento', aggfunc='sum').fillna(0)
     df_pivot_sld = df_consolidado.pivot_table(index='Conta', columns='Mês', values='Saldo Acumulado', aggfunc='sum').fillna(0)
 
-    def calc_base_val(chaves_input, col_tipo):
+    def calc_base_val(chaves_input, col_tipo, apr_tipo):
+        """
+        Lógica 100% alinhada à VBA: 
+        Procura contas S, com Chave D&M/Cliente igual à entrada, E valida a natureza (A/P/R).
+        """
         if not chaves_input: return 0.0
         total = 0.0
         chaves_list = [c.strip() for c in str(chaves_input).split(',')]
+        
+        col_limpa = df_plano[col_tipo].astype(str).str.replace(r'\.0$', '', regex=True).str.strip()
+        
         for ch in chaves_list:
-            contas = df_plano[df_plano[col_tipo] == ch]['Chave Cliente'].tolist()
-            for c in contas:
-                if c in df_pivot_sld.index:
-                    total += df_pivot_sld.loc[c, ultimo_mes]
+            ch_clean = ch.replace('.0', '').strip()
+            
+            contas_s = df_plano[
+                (col_limpa == ch_clean) & 
+                (df_plano['Sint./An.'] == 'S') &
+                (df_plano['At/Pas/Res'] == apr_tipo)
+            ]['Chave Cliente'].tolist()
+            
+            if contas_s:
+                for c in contas_s:
+                    if c in df_pivot_sld.index:
+                        total += df_pivot_sld.loc[c, ultimo_mes]
+            else:
+                contas_a = df_plano[
+                    (col_limpa == ch_clean) & 
+                    (df_plano['Sint./An.'] == 'A') &
+                    (df_plano['At/Pas/Res'] == apr_tipo)
+                ]['Chave Cliente'].tolist()
+                for c in contas_a:
+                    if c in df_pivot_sld.index:
+                        total += df_pivot_sld.loc[c, ultimo_mes]
         return abs(total)
 
-    bases_ativo = [calc_base_val(r['chave'], 'Chave D&M') for r in regras.get('ativo', [])]
-    bases_passivo = [calc_base_val(r['chave'], 'Chave Cliente') for r in regras.get('passivo', [])]
-    bases_resultado = [calc_base_val(r['chave'], 'Chave D&M') for r in regras.get('resultado', [])]
+    bases_ativo = [calc_base_val(r['chave'], 'Chave D&M', 'A') for r in regras.get('ativo', [])]
+    bases_passivo = [calc_base_val(r['chave'], 'Chave Cliente', 'P') for r in regras.get('passivo', [])]
+    bases_resultado = [calc_base_val(r['chave'], 'Chave D&M', 'R') for r in regras.get('resultado', [])]
 
+    # MALHA 1: Conflito S/A
     df_plano_a = df_plano[df_plano['Sint./An.'] == 'A']
     chaves_a = sorted(df_plano_a['Chave_Clean'].astype(str).tolist())
     pais_conflitantes = []
@@ -206,14 +231,14 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
             pais_conflitantes.append(c_atual)
             
     pais_conflitantes = sorted(list(set(pais_conflitantes)))
-    
     if pais_conflitantes:
-        log_erros.append(f"Conflito de Parametrização S/A: Foram identificadas {len(pais_conflitantes)} conta(s) marcadas como Analíticas (A) que possuem contas filhas também Analíticas. Ocorrência de duplicidade matemática na soma do balancete.")
+        log_erros.append(f"Conflito de Parametrização S/A: Foram identificadas {len(pais_conflitantes)} conta(s) marcadas como Analíticas (A) que possuem contas filhas também Analíticas.")
         for pai in pais_conflitantes[:5]:
-            conta_original = df_plano[df_plano['Chave_Clean'] == pai]['Chave Cliente'].values[0]
-            desc_original = df_plano[df_plano['Chave_Clean'] == pai]['Descrição'].values[0]
-            log_erros.append(f"Detalhe de Duplicidade S/A: Conta raiz [{conta_original} - {desc_original}].")
+            c_orig = df_plano[df_plano['Chave_Clean'] == pai]['Chave Cliente'].values[0]
+            d_orig = df_plano[df_plano['Chave_Clean'] == pai]['Descrição'].values[0]
+            log_erros.append(f"Detalhe S/A: Conta raiz [{c_orig} - {d_orig}].")
 
+    # MALHA 2: Furo de Estrutura S/A
     todas_chaves_geral = df_plano['Chave_Clean'].tolist()
     contas_s_vazias = []
     
@@ -224,19 +249,21 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
             contas_s_vazias.append(row_s['Chave Cliente'])
             
     if contas_s_vazias:
-        log_erros.append(f"Furo de Estrutura S/A: Identificadas {len(contas_s_vazias)} conta(s) parametrizada(s) como Sintética (S) sem subcontas cadastradas. O saldo atrelado a estas raízes não será computado no Balancete Histórico.")
+        log_erros.append(f"Furo de Estrutura S/A: Identificadas {len(contas_s_vazias)} conta(s) parametrizada(s) como Sintética (S) sem subcontas.")
         for cv in contas_s_vazias[:5]:
-            desc_cv = df_plano[df_plano['Chave Cliente'] == cv]['Descrição'].values[0]
-            log_erros.append(f"Detalhe de Estrutura S/A: Conta [{cv} - {desc_cv}].")
+            d_cv = df_plano[df_plano['Chave Cliente'] == cv]['Descrição'].values[0]
+            log_erros.append(f"Detalhe de Estrutura: Conta [{cv} - {d_cv}].")
 
+    # MALHA 3: Integridade Matemática Interna
     df_consolidado['Diff_Intramensal'] = df_consolidado['Saldo Anterior'] + df_consolidado['Movimento'] - df_consolidado['Saldo Acumulado']
     erros_math = df_consolidado[~np.isclose(df_consolidado['Diff_Intramensal'], 0, atol=0.01)]
     if not erros_math.empty:
-        log_erros.append(f"Inconsistência Matemática Interna: {len(erros_math)} registro(s) apresentam divergência na equação (Saldo Anterior + Movimento != Saldo Acumulado).")
+        log_erros.append(f"Inconsistência Matemática Interna: {len(erros_math)} registro(s) com divergência (Saldo Anterior + Movimento != Saldo Acumulado).")
         erros_math_sorted = erros_math.reindex(erros_math['Diff_Intramensal'].abs().sort_values(ascending=False).index)
         for _, row_e in erros_math_sorted.head(5).iterrows():
-            log_erros.append(f"Detalhe de Inconsistência Interna: Mês {row_e['Mês']} | Conta [{row_e['Conta']}] | Diferença de R$ {row_e['Diff_Intramensal']:,.2f}.")
+            log_erros.append(f"Mês {row_e['Mês']} | Conta [{row_e['Conta']}] | Diferença de R$ {row_e['Diff_Intramensal']:,.2f}.")
 
+    # MALHA 4: Roll-forward
     for i in range(len(meses_disponiveis) - 1):
         m_ant = meses_disponiveis[i]
         m_atu = meses_disponiveis[i+1]
@@ -250,15 +277,10 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         quebras = df_merge[~np.isclose(df_merge['Diff_Intermensal'], 0, atol=0.01)]
         if not quebras.empty:
             diff_liquida = quebras['Diff_Intermensal'].sum()
-            log_erros.append(f"Quebra de Continuidade Intermensal (Mês {m_ant} -> Mês {m_atu}): Identificadas {len(quebras)} conta(s) com Saldo Inicial diferente do Saldo Final anterior. Divergência líquida consolidada de R$ {diff_liquida:,.2f}.")
+            log_erros.append(f"Quebra de Continuidade Intermensal (Mês {m_ant} -> Mês {m_atu}): {len(quebras)} conta(s) com Saldo Inicial diferente do final anterior.")
             quebras_sorted = quebras.reindex(quebras['Diff_Intermensal'].abs().sort_values(ascending=False).index)
             for _, row_q in quebras_sorted.head(3).iterrows():
-                log_erros.append(f"Detalhe de Continuidade: Conta [{row_q['Conta']} - {row_q['Descrição']}] apresenta divergência de R$ {row_q['Diff_Intermensal']:,.2f}.")
-
-    for m in meses_disponiveis:
-        soma_balancete = df_consolidado[df_consolidado['Mês'] == m]['Saldo Acumulado'].sum()
-        if not np.isclose(soma_balancete, 0, atol=0.01):
-            log_erros.append(f"Desbalanceamento Global da Origem: O balancete bruto do mês {m} não totaliza zero. Diferença total apurada: R$ {soma_balancete:,.2f}.")
+                log_erros.append(f"Conta [{row_q['Conta']} - {row_q['Descrição']}] divergência de R$ {row_q['Diff_Intermensal']:,.2f}.")
 
     df_plano = df_plano.drop(columns=['Chave_Clean'])
 
@@ -284,7 +306,6 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     fundo_inclusao = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid") 
     fundo_amarelo = PatternFill(start_color="FFFFFF00", end_color="FFFFFF00", fill_type="solid")
 
-    # ABA 1: Parametros
     ws_param = wb.create_sheet("Parametros")
     colunas_param = ['Chave Cliente', 'Chave D&M', 'Classificação', 'Descrição', 'Sint./An.', 'At/Pas/Res', 'Indice', 'Observação']
     
@@ -305,7 +326,6 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     ws_param.column_dimensions['D'].width = 35 
     ws_param.column_dimensions['H'].width = 65 
 
-    # ABA 2: Balancete_Histórico
     ws_hist = wb.create_sheet("Balancete_Histórico")
     ws_hist['G2'] = "Ativo Acumulado"; ws_hist['G3'] = "Passivo Acumulado"
     ws_hist['G4'] = "Resultado Mensal"; ws_hist['G5'] = "Resultado Acumulado"
@@ -350,7 +370,7 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         current_row = linha_inicio + r_idx
         conta_cod = str(row_p['Chave Cliente']).strip()
         
-        # Inteligência de Amostragem NBC TA 530
+        # --- NBC TA 530 : MOTOR DE AMOSTRAGEM INTELIGENTE ---
         selecao_val = ""
         cols_amarelas = []
         
@@ -382,17 +402,8 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
             elif row_p['At/Pas/Res'] == 'R' and opcoes.get('resultado', False):
                 movimentos = [df_pivot_mov.loc[conta_cod, m] if conta_cod in df_pivot_mov.index and m in df_pivot_mov.columns else 0.0 for m in meses_disponiveis]
                 
-                # Inteligência de Média: Conta quando a conta "nasceu" (primeiro saldo/mov != 0)
-                idx_primeiro_mes = -1
-                for i_m, m in enumerate(meses_disponiveis):
-                    sld = df_pivot_sld.loc[conta_cod, m] if conta_cod in df_pivot_sld.index else 0.0
-                    mov = df_pivot_mov.loc[conta_cod, m] if conta_cod in df_pivot_mov.index else 0.0
-                    if abs(sld) > 0.01 or abs(mov) > 0.01:
-                        idx_primeiro_mes = i_m
-                        break
-                
-                meses_ativos = num_meses_total - idx_primeiro_mes if idx_primeiro_mes != -1 else 0
-                media = sum(movimentos) / meses_ativos if meses_ativos > 0 else 0.0
+                # Reversão para a matemática original (Diluição forçada dos meses sem movimento)
+                media = sum(movimentos) / num_meses_total
                 
                 for i, r_dict in enumerate(regras.get('resultado', [])):
                     if not r_dict['min']: continue
@@ -411,6 +422,7 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
                                     matched = True
                                     cols_amarelas.append(col_cursor_temp)
                                 col_cursor_temp += 2
+                            
                             if matched:
                                 selecao_val = f"X-R{i+1}"
                                 if 1 not in cols_amarelas: cols_amarelas.append(1)
