@@ -23,8 +23,6 @@ class TabuladorPythonApp(QWidget):
     def __init__(self):
         super().__init__()
         self.arquivos_selecionados = []
-        
-        # O Fundo da janela mestre
         self.setObjectName("MainWindow") 
         self.initUI()
 
@@ -32,16 +30,12 @@ class TabuladorPythonApp(QWidget):
         self.setWindowTitle("Tabulador de Balancetes")
         self.setGeometry(300, 300, 650, 550)
         
-        # Layout Mestre (Sem margens, para colar o cabeçalho e rodapé nas bordas)
         master_layout = QVBoxLayout(self)
         master_layout.setContentsMargins(0, 0, 0, 0)
         master_layout.setSpacing(0)
 
-        # =========================================================
-        # ÁREA DE CONTEÚDO CENTRAL (Fundo Branco - O Segredo da UI)
-        # =========================================================
         content_widget = QWidget()
-        content_widget.setObjectName("ScrollContent") # <-- Puxa o fundo #FFFFFF do CSS
+        content_widget.setObjectName("ScrollContent") 
         content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(30, 20, 30, 20)
         content_layout.setSpacing(15)
@@ -61,7 +55,7 @@ class TabuladorPythonApp(QWidget):
         header_layout.addWidget(btn_help)
         content_layout.addLayout(header_layout)
 
-        # --- ETAPA 1: O QUADRO (QGroupBox) ---
+        # --- ETAPA 1 ---
         group_step1 = QGroupBox("1. Seleção de Arquivo")
         layout_step1 = QVBoxLayout()
         layout_step1.setContentsMargins(15, 25, 15, 15)
@@ -84,7 +78,7 @@ class TabuladorPythonApp(QWidget):
         group_step1.setLayout(layout_step1)
         content_layout.addWidget(group_step1)
 
-        # --- ETAPA 2: O QUADRO (QGroupBox) ---
+        # --- ETAPA 2 ---
         group_step2 = QGroupBox("2. Selecione o Sistema Contábil")
         layout_step2 = QVBoxLayout()
         layout_step2.setContentsMargins(15, 25, 15, 15)
@@ -97,20 +91,15 @@ class TabuladorPythonApp(QWidget):
         group_step2.setLayout(layout_step2)
         content_layout.addWidget(group_step2)
 
-        content_layout.addStretch() # Empurra tudo para cima
-        
-        # Adiciona a folha branca ao layout mestre
+        content_layout.addStretch() 
         master_layout.addWidget(content_widget, 1)
 
-        # =========================================================
-        # RODAPÉ (FOOTER) - Separado com linha sutil igual à Análise
-        # =========================================================
+        # --- RODAPÉ ---
         footer_widget = QWidget()
         footer_widget.setObjectName("Footer")
         footer_layout = QHBoxLayout(footer_widget)
         footer_layout.setContentsMargins(30, 15, 30, 15)
         
-        # Coluna da esquerda: Label e Barra de progresso
         status_layout = QVBoxLayout()
         status_layout.setSpacing(5)
         
@@ -128,18 +117,15 @@ class TabuladorPythonApp(QWidget):
         footer_layout.addLayout(status_layout)
         footer_layout.addStretch()
 
-        # Coluna da direita: Botão Principal
         self.run_button = QPushButton("Iniciar Tabulação")
         self.run_button.setObjectName("btn_processar")
         self.run_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.run_button.clicked.connect(self.run_pure_python_tabulation)
         
         footer_layout.addWidget(self.run_button, alignment=Qt.AlignmentFlag.AlignBottom)
-        
         master_layout.addWidget(footer_widget, 0)
         
     def set_progress_state(self, state):
-        """Atualiza a cor da barra de progresso dinamicamente via QSS."""
         self.progress_bar.setProperty("state", state)
         self.progress_bar.style().unpolish(self.progress_bar)
         self.progress_bar.style().polish(self.progress_bar)
@@ -149,7 +135,7 @@ class TabuladorPythonApp(QWidget):
             self,
             "Selecione os Balancetes e Plano de Contas",
             "",
-            "Arquivos Excel (*.xlsx *.xls)"
+            "Arquivos Excel (*.xlsx *.xls *.csv)"
         )
         if files:
             self.arquivos_selecionados = files
@@ -167,6 +153,14 @@ class TabuladorPythonApp(QWidget):
             QMessageBox.warning(self, "Atenção", "Nenhum arquivo foi selecionado.")
             return
 
+        sistema_selecionado = self.system_combo.currentText()
+        
+        # Alerta amigável e proteção para Girando Sol caso tenha Excel
+        if sistema_selecionado == "Girando Sol":
+            arquivos_excel = [f for f in self.arquivos_selecionados if f.lower().endswith(('.xls', '.xlsx'))]
+            if arquivos_excel:
+                QMessageBox.warning(self, "Aviso", "Arquivos Excel foram identificados.\n\nO sistema 'Girando Sol' utiliza apenas arquivos CSV. Os arquivos Excel selecionados serão ignorados no processamento.")
+
         self.run_button.setEnabled(False)
         self.set_progress_state("default")
         self.progress_bar.setRange(0, 0) 
@@ -174,13 +168,18 @@ class TabuladorPythonApp(QWidget):
         QApplication.processEvents()
 
         try:
-            sistema_selecionado = self.system_combo.currentText()
-            dicionario_de_dfs = processar_arquivos_selecionados(self.arquivos_selecionados, sistema_selecionado)
+            retorno_processamento = processar_arquivos_selecionados(self.arquivos_selecionados, sistema_selecionado)
 
-            if not dicionario_de_dfs:
+            if not retorno_processamento:
                 raise ValueError("Nenhum dado foi processado. Verifique os arquivos de entrada.")
 
-            self.salvar_planilha_final(dicionario_de_dfs)
+            if isinstance(retorno_processamento, tuple):
+                dicionario_originais, dicionario_recalculados = retorno_processamento
+            else:
+                dicionario_originais = retorno_processamento
+                dicionario_recalculados = None
+
+            self.salvar_planilha_final(dicionario_originais, dicionario_recalculados)
             
             self.progress_bar.setRange(0, 100)
             self.progress_bar.setValue(100)
@@ -197,38 +196,57 @@ class TabuladorPythonApp(QWidget):
         finally:
             self.run_button.setEnabled(True)
             
-    def salvar_planilha_final(self, dicionario_dataframes):
+    def salvar_planilha_final(self, dicionario_dataframes, dicionario_recalculados=None):
         caminho_salvar, _ = QFileDialog.getSaveFileName(
             self, "Salvar Planilha Tabulada", "", "Arquivos Excel (*.xlsx)"
         )
 
-        if caminho_salvar:
-            with pd.ExcelWriter(caminho_salvar, engine='openpyxl') as writer:
-                for nome_aba in sorted(dicionario_dataframes.keys()):
-                    dataframe = dicionario_dataframes[nome_aba]
-                    dataframe.to_excel(writer, index=False, sheet_name=nome_aba)
-                    
-                    worksheet = writer.sheets[nome_aba]
-                    
-                    def get_col_letter(n):
-                        string_col = ""
-                        while n > 0:
-                            n, remainder = divmod(n - 1, 26)
-                            string_col = chr(65 + remainder) + string_col
-                        return string_col
+        if not caminho_salvar:
+            return
 
-                    for idx, col in enumerate(dataframe.columns):
-                        header_len = len(str(col))
-                        max_data_len = dataframe[col].astype(str).map(len).max() if not dataframe.empty else 0
-                        max_len = max(header_len, max_data_len) + 3
+        def aplicar_formatacao(writer_obj, dicionario):
+            for nome_aba in sorted(dicionario.keys()):
+                dataframe = dicionario[nome_aba]
+                dataframe.to_excel(writer_obj, index=False, sheet_name=nome_aba)
+                
+                worksheet = writer_obj.sheets[nome_aba]
+                
+                def get_col_letter(n):
+                    string_col = ""
+                    while n > 0:
+                        n, remainder = divmod(n - 1, 26)
+                        string_col = chr(65 + remainder) + string_col
+                    return string_col
+
+                for idx, col in enumerate(dataframe.columns):
+                    header_len = len(str(col))
+                    max_data_len = dataframe[col].astype(str).map(len).max() if not dataframe.empty else 0
+                    max_len = max(header_len, max_data_len) + 3
+                    
+                    if max_len > 60:
+                        max_len = 60
                         
-                        if max_len > 60:
-                            max_len = 60
-                            
-                        col_letter = get_col_letter(idx + 1)
-                        worksheet.column_dimensions[col_letter].width = max_len
+                    col_letter = get_col_letter(idx + 1)
+                    worksheet.column_dimensions[col_letter].width = max_len
 
+        # 1. Salva o arquivo principal
+        with pd.ExcelWriter(caminho_salvar, engine='openpyxl') as writer:
+            aplicar_formatacao(writer, dicionario_dataframes)
+
+        # 2. Salva o arquivo recalculado (se o sistema Girando Sol tiver devolvido um)
+        caminho_recalculado = ""
+        if dicionario_recalculados:
+            nome_base, extensao = os.path.splitext(caminho_salvar)
+            caminho_recalculado = f"{nome_base}_recalculada{extensao}"
+            
+            with pd.ExcelWriter(caminho_recalculado, engine='openpyxl') as writer:
+                aplicar_formatacao(writer, dicionario_recalculados)
+
+        if caminho_recalculado:
+            QMessageBox.information(self, "Sucesso", f"Arquivos salvos em:\n\n1. {caminho_salvar}\n2. {caminho_recalculado}")
+        else:
             QMessageBox.information(self, "Sucesso", f"Arquivo salvo em:\n{caminho_salvar}")
+
 
 def main():
     app = QApplication.instance()
@@ -241,7 +259,6 @@ def main():
 if __name__ == '__main__':
     app = QApplication(sys.argv)
     
-    # Carrega o tema do HUB para debugar este programa isoladamente
     theme_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', 'theme_light.qss'))
     if os.path.exists(theme_path):
         with open(theme_path, "r", encoding="utf-8") as f:
