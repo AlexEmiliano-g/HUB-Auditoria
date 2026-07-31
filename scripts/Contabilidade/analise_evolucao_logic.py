@@ -32,12 +32,15 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     is_reprocess = opcoes.get('is_reprocess', False)
     caminho_saida_desejado = opcoes.get('caminho_saida')
     
+    # =========================================================================
+    # 1. LEITURA E PADRONIZAÇÃO POR POSIÇÃO DE COLUNA (0 a 7 -> A a H)
+    # =========================================================================
     if is_reprocess:
         caminho_pta_atual = opcoes.get('caminho_pta_reprocess')
         try:
             with pd.ExcelFile(caminho_pta_atual) as xl_params:
                 if "Parametros" not in xl_params.sheet_names: raise ValueError(f"A aba 'Parametros' não foi encontrada.")
-                df_plano_raw = xl_params.parse("Parametros", dtype=str)
+                df_plano_raw = xl_params.parse("Parametros", dtype=str, header=None)
         except Exception as e:
             raise ValueError(f"Erro ao ler os parâmetros do PTA editado. Detalhe: {e}")
     else:
@@ -45,34 +48,34 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
             nomes_possiveis = ['planodecontas', 'planodeconta', 'planoconta', 'parametros', 'cadastroparametros']
             abas_encontradas = [sht for sht in xl_params.sheet_names if str(sht).lower().replace(" ", "").replace("_", "").split("(")[0].strip() in nomes_possiveis]
             if not abas_encontradas: abas_encontradas = [xl_params.sheet_names[0]]
-            df_plano_raw = xl_params.parse(abas_encontradas[-1], dtype=str)
+            df_plano_raw = xl_params.parse(abas_encontradas[-1], dtype=str, header=None)
 
-    colunas_padrao = ['Chave Cliente', 'Chave D&M', 'Classificação', 'Descrição', 'Sint./An.', 'At/Pas/Res', 'Indice', 'Observação']
-    df_plano = pd.DataFrame(columns=colunas_padrao)
-    
-    if len(df_plano_raw.columns) >= 2 and 'Chave Cliente' not in df_plano_raw.columns and 'Conta' not in df_plano_raw.columns:
-        df_plano['Chave Cliente'] = df_plano_raw.iloc[:, 0]
-        df_plano['Descrição'] = df_plano_raw.iloc[:, 1]
-    else:
-        map_cols = {'Chave Cliente': df_plano_raw.columns[0] if len(df_plano_raw.columns) > 0 else '',
-                    'Chave D&M': df_plano_raw.columns[1] if len(df_plano_raw.columns) > 1 else '',
-                    'Classificação': df_plano_raw.columns[2] if len(df_plano_raw.columns) > 2 else '',
-                    'Descrição': df_plano_raw.columns[3] if len(df_plano_raw.columns) > 3 else ''}
-        
-        for col_padrao in colunas_padrao:
-            col_busca = map_cols.get(col_padrao, col_padrao)
-            if col_busca in df_plano_raw.columns: df_plano[col_padrao] = df_plano_raw[col_busca]
-            else: df_plano[col_padrao] = ""
+    primeira_celula = str(df_plano_raw.iloc[0, 0]).upper().strip() if not df_plano_raw.empty else ""
+    if 'CHAVE' in primeira_celula or 'CONTA' in primeira_celula:
+        df_plano_raw = df_plano_raw.iloc[1:].reset_index(drop=True)
 
-    df_plano['Chave Cliente'] = df_plano['Chave Cliente'].astype(str).str.replace(r'[\.\-\s]', '', regex=True)
-    df_plano = df_plano[df_plano['Chave Cliente'] != 'nan']
-    df_plano['Chave_Clean'] = df_plano['Chave Cliente']
-    df_plano['Sint./An.'] = df_plano['Sint./An.'].astype(str).str.upper().str.strip().replace(['NAN', 'NULL', 'NONE'], '')
-    df_plano['At/Pas/Res'] = df_plano['At/Pas/Res'].astype(str).str.upper().str.strip().replace(['NAN', 'NULL', 'NONE'], '')
-    df_plano['Observação'] = df_plano['Observação'].astype(str).replace('nan', '')
+    # Garante 8 colunas (A a H) na leitura
+    df_plano = pd.DataFrame()
+    for col_idx in range(8):
+        if col_idx < len(df_plano_raw.columns):
+            df_plano[col_idx] = df_plano_raw.iloc[:, col_idx].astype(str)
+        else:
+            df_plano[col_idx] = ""
 
-    log_erros.append("Informação: Estrutura lida com sucesso. Pontuações (.) nas contas foram removidas internamente para garantir consistência de cruzamento.")
+    df_plano = df_plano.fillna("")
+    for c in range(8):
+        df_plano[c] = df_plano[c].astype(str).str.strip()
+        df_plano.loc[df_plano[c].str.lower().isin(['nan', 'null', 'none']), c] = ""
 
+    df_plano[0] = df_plano[0].str.replace(r'[\.\-\s]', '', regex=True)
+    df_plano = df_plano[df_plano[0] != ''].reset_index(drop=True)
+    df_plano['Chave_Clean'] = df_plano[0]
+
+    log_erros.append("Informação: Estrutura lida por posições (A-H). Pontuações (.) removidas internamente.")
+
+    # =========================================================================
+    # 2. LEITURA DOS BALANCETES
+    # =========================================================================
     df_lista = []
     saldo_dezembro_dit = {}
     with pd.ExcelFile(caminho_entrada) as xl_dados:
@@ -99,49 +102,92 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     ultimo_mes = meses_disponiveis[-1]
     num_meses_total = len(meses_disponiveis)
 
+    # =========================================================================
+    # 3. VERIFICAÇÃO DE CONTAS ÓRFÃS
+    # =========================================================================
     contas_balancete = df_consolidado[['Cod. Reduzido', 'Conta_Clean', 'Descrição']].drop_duplicates(subset=['Conta_Clean'])
     contas_balancete = contas_balancete[contas_balancete['Conta_Clean'] != '']
     orfao_mask = ~contas_balancete['Conta_Clean'].isin(df_plano['Chave_Clean'])
     contas_orfas = contas_balancete[orfao_mask].copy()
     
     if not contas_orfas.empty and inclusao_inteligente:
-        log_erros.append(f"Informação: {len(contas_orfas)} conta(s) órfãs identificadas e adicionadas ao plano de contas com sucesso.")
+        log_erros.append(f"Informação: {len(contas_orfas)} conta(s) órfãs identificadas e adicionadas ao plano de contas.")
         novas_linhas = pd.DataFrame({
-            'Chave Cliente': contas_orfas['Conta_Clean'], 'Chave_Clean': contas_orfas['Conta_Clean'],
-            'Chave D&M': '', 'Classificação': contas_orfas['Cod. Reduzido'], 'Descrição': contas_orfas['Descrição'],
-            'Sint./An.': '', 'At/Pas/Res': '', 'Indice': 0, 'Observação': 'Adicionado por classificação automática'
+            0: contas_orfas['Conta_Clean'],
+            1: '',
+            2: contas_orfas['Cod. Reduzido'],
+            3: contas_orfas['Descrição'],
+            4: '',
+            5: '',
+            6: '0',
+            7: 'Adicionada por classificação automática',
+            'Chave_Clean': contas_orfas['Conta_Clean']
         })
         df_plano = pd.concat([df_plano, novas_linhas], ignore_index=True)
 
     df_plano = df_plano.sort_values('Chave_Clean').reset_index(drop=True)
+    
+    # =========================================================================
+    # 4. MOTOR DE RASTRO DE AUDITORIA (OTIMIZADO - PASSE ÚNICO)
+    # =========================================================================
     if inclusao_inteligente or is_reprocess:
-        chaves = df_plano['Chave_Clean']
-        proxima_chave = chaves.shift(-1).fillna('')
+        chaves = df_plano['Chave_Clean'].tolist()
+        
+        # Predições vetoriais do Motor
+        proxima_chave = chaves[1:] + ['']
         condicao_sintetica = [(str(prox).startswith(str(atual))) and (str(atual) != '') for atual, prox in zip(chaves, proxima_chave)]
         sint_an_motor = np.where(condicao_sintetica, 'S', 'A')
-        prefixo = df_plano['Chave_Clean'].str[0]
-        apr_motor = np.where(prefixo == '1', 'A', np.where(prefixo == '2', 'P', 'R'))
-        novos_sa, novos_apr, novas_obs = [], [], []
+        prefixo = [str(c)[0] if c else '' for c in chaves]
+        apr_motor = np.where(np.array(prefixo) == '1', 'A', np.where(np.array(prefixo) == '2', 'P', 'R'))
         
-        for u_sa, m_sa, u_apr, m_apr, obs in zip(df_plano['Sint./An.'], sint_an_motor, df_plano['At/Pas/Res'], apr_motor, df_plano['Observação']):
-            obs_atual = str(obs) if obs else ""
-            if u_sa == '': final_sa = m_sa
-            elif u_sa == 'A' and m_sa == 'S': final_sa = u_sa; obs_atual += f" | Sugestão do sistema: Sintética(S)"
-            elif u_sa != m_sa and "S/A Apontado:" not in obs_atual: final_sa = u_sa; obs_atual += f" | S/A Apontado: {m_sa}"
-            else: final_sa = u_sa
-            if u_apr == '': final_apr = m_apr
-            elif u_apr != m_apr and "A/P/R Apontado:" not in obs_atual: final_apr = u_apr; obs_atual += f" | A/P/R Apontado: {m_apr}"
-            else: final_apr = u_apr
-            novos_sa.append(final_sa); novos_apr.append(final_apr); novas_obs.append(obs_atual.strip(" | "))
+        # Loop unificado de alta performance (Avalia, Traduz e Grava na mesma passada)
+        for idx in df_plano.index:
+            u_sa = str(df_plano.at[idx, 4]).strip().upper()
+            m_sa = sint_an_motor[idx]
             
-        df_plano['Sint./An.'] = novos_sa; df_plano['At/Pas/Res'] = novos_apr; df_plano['Observação'] = novas_obs
+            u_apr = str(df_plano.at[idx, 5]).strip().upper()
+            m_apr = apr_motor[idx]
+            
+            obs_atual = str(df_plano.at[idx, 7]).strip()
+            if obs_atual.lower() in ['nan', 'null', 'none']: obs_atual = ''
+            
+            mensagens = []
+            
+            # Análise e Tradução S/A
+            if u_sa == '' or u_sa.lower() in ['nan', 'null', 'none']:
+                df_plano.at[idx, 4] = m_sa
+                mensagens.append(f"Auto-Classificada ({'Analítica' if m_sa == 'A' else 'Sintética'})")
+            elif u_sa != m_sa:
+                mensagens.append(f"Motor sugeriu S/A: {'Analítica' if m_sa == 'A' else 'Sintética'}")
+                    
+            # Análise e Tradução A/P/R
+            if u_apr == '' or u_apr.lower() in ['nan', 'null', 'none']:
+                df_plano.at[idx, 5] = m_apr
+                if m_apr == 'A': mensagens.append("Auto-Classificada (Ativo)")
+                elif m_apr == 'P': mensagens.append("Auto-Classificada (Passivo)")
+                elif m_apr == 'R': mensagens.append("Auto-Classificada (Resultado)")
+            elif u_apr != m_apr:
+                if m_apr == 'A': mensagens.append("Motor sugeriu A/P/R: Ativo")
+                elif m_apr == 'P': mensagens.append("Motor sugeriu A/P/R: Passivo")
+                elif m_apr == 'R': mensagens.append("Motor sugeriu A/P/R: Resultado")
+            
+            # Concatenação e Gravação Blindada
+            if mensagens:
+                nova_msg = " | ".join(mensagens)
+                if nova_msg not in obs_atual:
+                    obs_atual = f"{obs_atual} | {nova_msg}" if obs_atual else nova_msg
+                
+                df_plano.at[idx, 7] = obs_atual
 
-    df_plano['Indice'] = range(1, len(df_plano) + 1)
+    df_plano[6] = [str(n) for n in range(1, len(df_plano) + 1)]
     
+    # =========================================================================
+    # 5. DIAGNÓSTICO MATEMÁTICO
+    # =========================================================================
     df_pivot_mov = df_consolidado.pivot_table(index='Conta_Clean', columns='Mês', values='Movimento', aggfunc='sum').fillna(0)
     df_pivot_sld = df_consolidado.pivot_table(index='Conta_Clean', columns='Mês', values='Saldo Acumulado', aggfunc='sum').fillna(0)
 
-    df_plano_a = df_plano[df_plano['Sint./An.'] == 'A']
+    df_plano_a = df_plano[df_plano[4] == 'A']
     chaves_a = sorted(df_plano_a['Chave_Clean'].astype(str).tolist())
     pais_conflitantes = []
     for i in range(len(chaves_a) - 1):
@@ -154,10 +200,10 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
 
     todas_chaves_geral = df_plano['Chave_Clean'].tolist()
     contas_s_vazias = []
-    for _, row_s in df_plano[df_plano['Sint./An.'] == 'S'].iterrows():
+    for _, row_s in df_plano[df_plano[4] == 'S'].iterrows():
         chave_s = row_s['Chave_Clean']
         filhas_s = [c for c in todas_chaves_geral if c.startswith(chave_s)]
-        if len(filhas_s) <= 1: contas_s_vazias.append(row_s['Chave Cliente'])
+        if len(filhas_s) <= 1: contas_s_vazias.append(row_s[0])
     if contas_s_vazias:
         log_erros.append(f"Furo de Estrutura S/A: Identificadas {len(contas_s_vazias)} conta(s) parametrizada(s) como Sintética (S) sem subcontas cadastradas.")
 
@@ -182,29 +228,32 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         if not np.isclose(soma_balancete, 0, atol=0.01):
             log_erros.append(f"Desbalanceamento Global da Origem: O balancete bruto do mês {m} não totaliza zero. Diferença total: R$ {soma_balancete:,.2f}.")
 
-    def calc_base_val(chaves_input, col_tipo, apr_tipo):
+    def calc_base_val(chaves_input, col_idx_tipo, apr_tipo):
         if not chaves_input: return 0.0
         total = 0.0
         chaves_list = [c.strip() for c in str(chaves_input).split(',')]
-        col_limpa = df_plano[col_tipo].astype(str).str.replace(r'[\.\-\s0]$', '', regex=True).str.strip()
+        col_limpa = df_plano[col_idx_tipo].astype(str).str.replace(r'[\.\-\s0]$', '', regex=True).str.strip()
         for ch in chaves_list:
             ch_clean = ch.replace('.0', '').strip()
-            contas_s = df_plano[(col_limpa == ch_clean) & (df_plano['Sint./An.'] == 'S') & (df_plano['At/Pas/Res'] == apr_tipo)]['Chave Cliente'].tolist()
+            contas_s = df_plano[(col_limpa == ch_clean) & (df_plano[4] == 'S') & (df_plano[5] == apr_tipo)][0].tolist()
             if contas_s:
                 for c in contas_s:
                     if c in df_pivot_sld.index: total += df_pivot_sld.loc[c, ultimo_mes]
             else:
-                contas_a = df_plano[(col_limpa == ch_clean) & (df_plano['Sint./An.'] == 'A') & (df_plano['At/Pas/Res'] == apr_tipo)]['Chave Cliente'].tolist()
+                contas_a = df_plano[(col_limpa == ch_clean) & (df_plano[4] == 'A') & (df_plano[5] == apr_tipo)][0].tolist()
                 for c in contas_a:
                     if c in df_pivot_sld.index: total += df_pivot_sld.loc[c, ultimo_mes]
         return abs(total)
 
-    bases_ativo = [calc_base_val(r['chave'], 'Chave D&M', 'A') for r in regras.get('ativo', [])]
-    bases_passivo = [calc_base_val(r['chave'], 'Chave Cliente', 'P') for r in regras.get('passivo', [])]
-    bases_resultado = [calc_base_val(r['chave'], 'Chave D&M', 'R') for r in regras.get('resultado', [])]
+    bases_ativo = [calc_base_val(r['chave'], 1, 'A') for r in regras.get('ativo', [])] 
+    bases_passivo = [calc_base_val(r['chave'], 0, 'P') for r in regras.get('passivo', [])] 
+    bases_resultado = [calc_base_val(r['chave'], 1, 'R') for r in regras.get('resultado', [])] 
 
     df_plano = df_plano.drop(columns=['Chave_Clean'])
 
+    # =========================================================================
+    # 6. EXPORTAÇÃO
+    # =========================================================================
     caminho_saida = caminho_saida_desejado
     base_saida_arq, ext = os.path.splitext(caminho_saida)
     counter = 2
@@ -228,20 +277,29 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     ws_param = wb.create_sheet("Parametros")
     ws_param.sheet_view.showGridLines = False
     
-    for c_idx, col_name in enumerate(colunas_padrao, 1): 
+    colunas_padrao_export = ['Chave Cliente', 'Chave D&M', 'Classificação', 'Descrição', 'Sint./An.', 'At/Pas/Res', 'Indice', 'Observação']
+    for c_idx, col_name in enumerate(colunas_padrao_export, 1): 
         cel = ws_param.cell(row=1, column=c_idx, value=col_name)
         cel.font = f_aptos_bold
         
-    for r_idx, row in df_plano.iterrows():
-        foi_ad = "Adicionado" in str(row.get('Observação', ''))
-        for c_idx, col_name in enumerate(colunas_padrao, 1):
-            cel = ws_param.cell(row=r_idx+2, column=c_idx, value=row.get(col_name, ""))
+    for r_idx, (_, row) in enumerate(df_plano.iterrows()):
+        obs_text = str(row[7]) 
+        
+        # Filtro refinado para pintar a célula
+        foi_ad = any(t in obs_text for t in ["Adicionada", "Auto-Classificada", "sugeriu"])
+        
+        for c_idx in range(8): 
+            cel = ws_param.cell(row=r_idx+2, column=c_idx+1, value=str(row[c_idx]))
             cel.font = f_aptos
-            if foi_ad: cel.fill = fill_incl
+            
+            # Pinta a célula de amarelo SOMENTE na coluna H (índice 7) se houve modificação
+            if foi_ad and c_idx == 7: 
+                cel.fill = fill_incl
 
     ws_param.auto_filter.ref = ws_param.dimensions
     for col in ws_param.columns: ws_param.column_dimensions[col[0].column_letter].width = 15
-    ws_param.column_dimensions['D'].width = 35; ws_param.column_dimensions['H'].width = 65 
+    ws_param.column_dimensions['D'].width = 35; 
+    ws_param.column_dimensions['H'].width = 65 
 
     ws_hist = wb.create_sheet("Balancete_Histórico")
     ws_hist.sheet_view.showGridLines = False 
@@ -271,26 +329,26 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         cel.font = f_aptos_bold
 
     linha_inicio = 9
-    for r_idx, row_p in df_plano.iterrows():
+    for r_idx, (_, row_p) in enumerate(df_plano.iterrows()):
         current_row = linha_inicio + r_idx
-        conta_cod = str(row_p['Chave Cliente']).strip()
+        conta_cod = str(row_p[0]).strip() 
         selecao_val = ""; cols_amarelas = []
         
-        if row_p['Sint./An.'] == 'A':
+        if row_p[4] == 'A': 
             saldo_final_abs = abs(df_pivot_sld.loc[conta_cod, ultimo_mes]) if conta_cod in df_pivot_sld.index else 0.0
-            if row_p['At/Pas/Res'] == 'A' and opcoes.get('ativo', False):
+            if row_p[5] == 'A' and opcoes.get('ativo', False): 
                 for i, r_dict in enumerate(regras.get('ativo', [])):
                     if not r_dict['min']: continue
                     b_a = bases_ativo[i]
                     if (b_a * parse_perc(r_dict['min'])) < saldo_final_abs <= (b_a * parse_perc(r_dict['max'])):
                         selecao_val = f"X-A{i+1}"; cols_amarelas.append(1); break
-            elif row_p['At/Pas/Res'] == 'P' and opcoes.get('passivo', False):
+            elif row_p[5] == 'P' and opcoes.get('passivo', False):
                 for i, r_dict in enumerate(regras.get('passivo', [])):
                     if not r_dict['min']: continue
                     b_p = bases_passivo[i]
                     if (b_p * parse_perc(r_dict['min'])) < saldo_final_abs <= (b_p * parse_perc(r_dict['max'])):
                         selecao_val = f"X-P{i+1}"; cols_amarelas.append(1); break
-            elif row_p['At/Pas/Res'] == 'R' and opcoes.get('resultado', False):
+            elif row_p[5] == 'R' and opcoes.get('resultado', False):
                 movs = [df_pivot_mov.loc[conta_cod, m] if conta_cod in df_pivot_mov.index else 0.0 for m in meses_disponiveis]
                 media = sum(movs) / num_meses_total 
                 for i, r_dict in enumerate(regras.get('resultado', [])):
@@ -313,7 +371,7 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         ws_hist.cell(row=current_row, column=57, value=selecao_val)
         if 1 in cols_amarelas: c_sel.fill = fill_ama
         
-        dados_col = ["Geral", conta_cod, row_p['Classificação'], row_p['Descrição'], row_p['Chave D&M'], saldo_dezembro_dit.get(conta_cod, 0.0)]
+        dados_col = ["Geral", conta_cod, row_p[2], row_p[3], row_p[1], saldo_dezembro_dit.get(conta_cod, 0.0)]
         for ci, val in enumerate(dados_col, 2):
             cel = ws_hist.cell(row=current_row, column=ci, value=val)
             cel.font = f_aptos
@@ -332,8 +390,8 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
             c_sld.font = f_aptos; c_sld.number_format = '#,##0.00'
             col_cursor += 2
             
-        ws_hist.cell(row=current_row, column=54, value=row_p['Sint./An.'])
-        ws_hist.cell(row=current_row, column=55, value=row_p['At/Pas/Res'])
+        ws_hist.cell(row=current_row, column=54, value=row_p[4]) 
+        ws_hist.cell(row=current_row, column=55, value=row_p[5]) 
 
     max_col_utilizada = 7 + (len(meses_disponiveis) * 2)
     for r in range(1, 8):
@@ -384,7 +442,8 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         ws_log.cell(row=3, column=1, value="Nenhuma inconsistência primária identificada no processamento estrutural.").font = f_aptos
 
     wb.save(caminho_saida)
-    wb.close() 
+    wb.close()
+    
     return caminho_saida, log_erros
 
 
@@ -408,7 +467,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
     justificadas = []
     todas_selecionadas = [] 
     
-    # 1. ENCONTRA O NÚMERO EXATO DE MESES E A COLUNA DE SALDO ACUMULADO FINAL
     num_meses = 0
     for c in range(8, ws_hist.max_column + 1, 2):
         val_header = str(ws_hist.cell(row=8, column=c).value or "").strip()
@@ -431,9 +489,8 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
             
             cel_fill = ws_hist.cell(row=r, column=c_mov).fill
             if cel_fill and cel_fill.start_color.index != "00000000": 
-                meses_pintados.append(m) # Salva o índice 0-11
+                meses_pintados.append(m)
                 
-        # A última coluna de Saldo Acumulado baseada na quantidade de meses do arquivo
         col_ult_sld = 8 + ((num_meses - 1) * 2) + 1 if num_meses > 0 else 9
         val_acum = ws_hist.cell(row=r, column=col_ult_sld).value
                 
@@ -558,7 +615,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
     if ptas['P']: construir_aba_pta('P', ptas['P'])
     if ptas['R']: construir_aba_pta('R', ptas['R'])
 
-    # --- ABA 5: TABELAS SEM GRÁFICOS E COM SALDOS CORRIGIDOS ---
     if todas_selecionadas:
         ws_tab = wb_pta.create_sheet("Tabelas")
         ws_tab.sheet_view.showGridLines = False
@@ -595,7 +651,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
         ws_tab.column_dimensions['B'].width = 40
         for m in range(3, 16): ws_tab.column_dimensions[get_column_letter(m)].width = 14
 
-        # Detalhamento Conta a Conta
         r_cursor += 5
         
         for d in todas_selecionadas:
@@ -603,7 +658,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
             r_atual = r_cursor + 1
             r_anterior = r_cursor + 2
             
-            # Cabeçalho da Conta
             ws_tab.cell(row=r_header, column=1, value="Conta").font = f_pta_bold; formatar_borda(ws_tab.cell(row=r_header, column=1))
             ws_tab.cell(row=r_header, column=2, value="Nome da Conta").font = f_pta_bold; formatar_borda(ws_tab.cell(row=r_header, column=2))
             for m_idx, m_name in enumerate(meses):
@@ -611,7 +665,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
                 cel.font = f_pta_bold; formatar_borda(cel)
             ws_tab.cell(row=r_header, column=15, value="Saldo Acumulado").font = f_pta_bold; formatar_borda(ws_tab.cell(row=r_header, column=15))
                 
-            # Ano Atual
             ws_tab.cell(row=r_atual, column=1, value=d['chave']).font = f_pta_padrao; formatar_borda(ws_tab.cell(row=r_atual, column=1))
             ws_tab.cell(row=r_atual, column=2, value=d['desc']).font = f_pta_padrao; formatar_borda(ws_tab.cell(row=r_atual, column=2))
             for m_idx, v in enumerate(d['saldos']):
@@ -620,7 +673,6 @@ def gerar_ptas_excel(caminho_origem, caminho_destino):
             c_acum_atual = ws_tab.cell(row=r_atual, column=15, value=d['acumulado'])
             c_acum_atual.number_format = '#,##0.00'; c_acum_atual.font = f_pta_padrao; formatar_borda(c_acum_atual)
                 
-            # Ano Anterior
             ws_tab.cell(row=r_anterior, column=1, value="Ano Anterior").font = f_pta_bold; formatar_borda(ws_tab.cell(row=r_anterior, column=1))
             ws_tab.cell(row=r_anterior, column=2, value="").font = f_pta_padrao; formatar_borda(ws_tab.cell(row=r_anterior, column=2))
             for m_idx in range(12):
