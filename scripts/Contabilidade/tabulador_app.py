@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QMessageBox, QComboBox, QProgressBar,
     QGroupBox
 )
-from PyQt6.QtGui import QFont, QCursor
+from PyQt6.QtGui import QFont, QCursor, QDragEnterEvent, QDropEvent
 from PyQt6.QtCore import Qt
 
 # Tratamento de caminhos para suportar a execução tanto via HUB quanto standalone
@@ -24,6 +24,10 @@ class TabuladorPythonApp(QWidget):
         super().__init__()
         self.arquivos_selecionados = []
         self.setObjectName("MainWindow") 
+        
+        # Habilita a funcionalidade de Arrastar e Soltar (Drag and Drop)
+        self.setAcceptDrops(True)
+        
         self.initUI()
 
     def initUI(self):
@@ -56,7 +60,7 @@ class TabuladorPythonApp(QWidget):
         content_layout.addLayout(header_layout)
 
         # --- ETAPA 1 ---
-        group_step1 = QGroupBox("1. Seleção de Arquivo")
+        group_step1 = QGroupBox("1. Seleção de Arquivos (Arraste e solte aqui ou procure)")
         layout_step1 = QVBoxLayout()
         layout_step1.setContentsMargins(15, 25, 15, 15)
         
@@ -124,29 +128,59 @@ class TabuladorPythonApp(QWidget):
         
         footer_layout.addWidget(self.run_button, alignment=Qt.AlignmentFlag.AlignBottom)
         master_layout.addWidget(footer_widget, 0)
+
+    # --- EVENTOS DE ARRASTAR E SOLTAR (DRAG AND DROP) ---
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        """Valida os arquivos quando são arrastados para cima da janela."""
+        if event.mimeData().hasUrls():
+            for url in event.mimeData().urls():
+                caminho = url.toLocalFile()
+                if caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt')):
+                    event.acceptProposedAction()
+                    return
+        event.ignore()
+
+    def dropEvent(self, event: QDropEvent):
+        """Processa os arquivos soltos na janela."""
+        if event.mimeData().hasUrls():
+            novos_arquivos = []
+            for url in event.mimeData().urls():
+                caminho = url.toLocalFile()
+                if os.path.isfile(caminho) and caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt')):
+                    if caminho not in self.arquivos_selecionados:
+                        novos_arquivos.append(caminho)
+            
+            if novos_arquivos:
+                self.arquivos_selecionados.extend(novos_arquivos)
+                self.atualizar_lista_interface()
+                event.acceptProposedAction()
+
+    def atualizar_lista_interface(self):
+        """Atualiza a lista visual e o contador de arquivos selecionados."""
+        self.file_list_widget.clear()
+        self.set_progress_state("default")
+        self.progress_bar.setValue(0)
+        self.status_label.setText(f"{len(self.arquivos_selecionados)} arquivo(s) selecionado(s).")
         
+        for file_path in self.arquivos_selecionados:
+            self.file_list_widget.addItem(os.path.basename(file_path))
+
     def set_progress_state(self, state):
         self.progress_bar.setProperty("state", state)
         self.progress_bar.style().unpolish(self.progress_bar)
         self.progress_bar.style().polish(self.progress_bar)
 
     def browse_files(self):
+        # Inclusão da extensão *.txt no filtro do diálogo de arquivo
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "Selecione os Balancetes e Plano de Contas",
             "",
-            "Arquivos Excel (*.xlsx *.xls *.csv)"
+            "Arquivos Suportados (*.xlsx *.xls *.csv *.txt);;Todos os Arquivos (*.*)"
         )
         if files:
             self.arquivos_selecionados = files
-            self.file_list_widget.clear()
-            
-            self.set_progress_state("default")
-            self.progress_bar.setValue(0)
-            self.status_label.setText(f"{len(files)} arquivo(s) selecionado(s).")
-            
-            for file_path in files:
-                self.file_list_widget.addItem(os.path.basename(file_path))
+            self.atualizar_lista_interface()
 
     def run_pure_python_tabulation(self):
         if not self.arquivos_selecionados:
