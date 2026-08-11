@@ -135,7 +135,7 @@ class TabuladorPythonApp(QWidget):
             self,
             "Selecione os Balancetes e Plano de Contas",
             "",
-            "Arquivos Excel (*.xlsx *.xls *.csv)"
+            "Arquivos Excel (*.xlsx *.xls *.csv *.txt)"
         )
         if files:
             self.arquivos_selecionados = files

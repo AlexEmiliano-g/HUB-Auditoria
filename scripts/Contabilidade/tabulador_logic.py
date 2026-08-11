@@ -1,8 +1,8 @@
 # Tenta importar os sistemas (suporta tanto o uso pelo HUB quanto isolado)
 try:
-    from scripts.Contabilidade.sistemas import fuga, uniair, uniodontofederacao, girandosol, useall
+    from scripts.Contabilidade.sistemas import fuga, uniair, uniodontofederacao, girandosol, useall, Cooperoque, Coopercargo, Coagril, FecoagroSC, Cooperlate
 except ModuleNotFoundError:
-    from sistemas import fuga, uniair, uniodontofederacao, girandosol, useall
+    from sistemas import fuga, uniair, uniodontofederacao, girandosol, useall, Cooperoque, Coopercargo, Coagril, FecoagroSC, Cooperlate
 
 # ==============================================================================
 # REGISTRO DE SISTEMAS
@@ -15,6 +15,11 @@ SISTEMAS_REGISTRADOS = {
     "UniOdonto Federação": uniodontofederacao.processar,
     "Girando Sol": girandosol.processar,
     "Useall": useall.processar,
+    "Cooperoque": Cooperoque.processar,
+    "Coopercargo": Coopercargo.processar,
+    "Coagril": Coagril.processar,
+    "Fecoagro SC": FecoagroSC.processar,
+    "Cooperlate": Cooperlate.processar,
 }
 
 def obter_nomes_sistemas():
