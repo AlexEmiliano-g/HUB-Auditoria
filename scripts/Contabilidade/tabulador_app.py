@@ -53,6 +53,7 @@ class TabuladorPythonApp(QWidget):
         btn_help.setObjectName("btn_help")
         btn_help.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         btn_help.setToolTip("Ajuda sobre o Tabulador")
+        btn_help.clicked.connect(self.show_help) # <--- Conexão do botão de ajuda adicionada
         
         header_layout.addWidget(app_title)
         header_layout.addStretch()
@@ -128,6 +129,28 @@ class TabuladorPythonApp(QWidget):
         
         footer_layout.addWidget(self.run_button, alignment=Qt.AlignmentFlag.AlignBottom)
         master_layout.addWidget(footer_widget, 0)
+
+    # --- FUNÇÃO DE AJUDA ---
+    def show_help(self):
+        """Exibe as instruções de uso do tabulador."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Como funciona o Tabulador")
+        msg.setIcon(QMessageBox.Icon.Information)
+        
+        texto_ajuda = (
+            "O Tabulador transforma exportações contábeis com problemas de layout em planilhas padronizadas.\n\n"
+            "Passo a passo:\n"
+            "1. Seleção: Arraste os arquivos de balancete para a tela ou clique em 'Procurar Arquivos...'\n"
+            "2. Sistema: Selecione no menu qual é o sistema de origem dos arquivos. O robô aplicará correções específicas de matemática e layout para aquele ERP.\n"
+            "3. Processar: Clique em 'Iniciar Tabulação'. O sistema irá limpar e unificar os dados.\n"
+            "4. Salvar: Escolha a pasta onde deseja salvar a nova planilha Excel unificada.\n\n"
+            "Dica de Nomenclatura das Abas:\n"
+            "Se você quiser que as abas do Excel final fiquem perfeitamente ordenadas (Ex: 01, 02), renomeie os arquivos originais colocando o prefixo 'B_' (Ex: B_01_Balancete.xlsx, B_02_Janeiro.txt). "
+            "O sistema extrairá o número automaticamente!"
+        )
+        
+        msg.setText(texto_ajuda)
+        msg.exec()
 
     # --- EVENTOS DE ARRASTAR E SOLTAR (DRAG AND DROP) ---
     def dragEnterEvent(self, event: QDragEnterEvent):

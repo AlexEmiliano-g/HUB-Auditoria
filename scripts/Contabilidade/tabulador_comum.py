@@ -3,6 +3,47 @@ import os
 import pandas as pd
 import re
 
+def obter_nome_aba_seguro(caminho_arquivo, abas_existentes):
+    """
+    Gera o nome da aba para o Excel seguindo as regras do HUB:
+    1. Se começar com 'B_XX', tenta usar apenas os dígitos (ex: '01').
+    2. Se a aba 'XX' já existir (colisão), utiliza o nome completo do arquivo.
+    3. Se não tiver o padrão 'B_XX', utiliza o nome completo.
+    4. Limita a 31 caracteres (limite nativo da biblioteca openpyxl e do Excel).
+    5. Segurança extra: se até o nome completo gerar colisão, adiciona um sufixo numérico.
+    """
+    import os
+    import re
+    
+    nome_base = os.path.basename(caminho_arquivo)
+    nome_sem_extensao = os.path.splitext(nome_base)[0]
+    
+    # 1. Tenta extrair o padrão B_XX
+    match = re.match(r"B_(\d{2})", nome_base, re.IGNORECASE)
+    
+    if match:
+        tentativa_nome = match.group(1)
+        # 2. Se já existir, aplica a regra de usar o nome completo sem extensão
+        if tentativa_nome in abas_existentes:
+            tentativa_nome = nome_sem_extensao
+    else:
+        # 3. Não tem padrão B_, usa o nome original
+        tentativa_nome = nome_sem_extensao
+        
+    # 4. Limita aos 31 caracteres do Excel
+    nome_final = tentativa_nome[:31]
+    
+    # 5. Fallback final de segurança absoluta 
+    # (Ex: caso o usuário suba dois arquivos idênticos B_01Teste de pastas diferentes)
+    contador = 1
+    nome_original = nome_final
+    while nome_final in abas_existentes:
+        sufixo = f"_{contador}"
+        nome_final = f"{nome_original[:31-len(sufixo)]}{sufixo}"
+        contador += 1
+        
+    return nome_final
+
 # ==============================================================================
 # FUNÇÕES AUXILIARES
 # ==============================================================================
@@ -2303,5 +2344,452 @@ def transformar_balancete_cooperlate(caminho_arquivo):
         df_registros["Saldo Acumulado"]
         .astype(float)
     )
+
+# ==============================================================================
+# TRANSFORMAÇÃO DO BALANCETE AURIVERDE
+# ==============================================================================
+
+def _localizar_cabecalho_auriverde(df_origem, nome_arquivo):
+    """
+    Localiza a linha de cabeçalho do balancete.
+    O cabeçalho deve apresentar 'Conta' na primeira coluna.
+    """
+    for indice in df_origem.index:
+        valor_coluna_a = str(df_origem.iloc[indice, 0]).strip().upper()
+        if valor_coluna_a == "CONTA":
+            return indice
+
+    raise ValueError(
+        f"Não foi possível localizar o cabeçalho no arquivo '{nome_arquivo}'."
+    )
+
+def transformar_balancete_auriverde(caminho_arquivo):
+    """
+    Transforma o balancete Excel do cliente Auriverde.
+
+    O cabeçalho é deslocado em relação aos dados. O Saldo Anterior real 
+    está ausente, sendo calculado matematicamente a partir do Saldo Atual e movimentações.
+    """
+    nome_arquivo = os.path.basename(caminho_arquivo)
+    extensao = os.path.splitext(caminho_arquivo)[1].lower()
+
+    if extensao not in {".xls", ".xlsx"}:
+        raise ValueError(
+            f"O arquivo '{nome_arquivo}' não é um arquivo Excel válido."
+        )
+
+    engine = "xlrd" if extensao == ".xls" else "openpyxl"
+
+    try:
+        df_origem = pd.read_excel(
+            caminho_arquivo,
+            sheet_name=0,
+            header=None,
+            dtype=object,
+            engine=engine
+        )
+
+    except Exception as erro:
+        raise ValueError(
+            f"Não foi possível ler o arquivo do cliente Auriverde "
+            f"'{nome_arquivo}'. Erro: {erro}"
+        ) from erro
+
+    if df_origem.shape[1] < 7:
+        raise ValueError(
+            f"O arquivo do cliente Auriverde '{nome_arquivo}' possui "
+            f"{df_origem.shape[1]} coluna(s), mas são necessárias "
+            "pelo menos 7 colunas."
+        )
+
+    indice_cabecalho = _localizar_cabecalho_auriverde(
+        df_origem,
+        nome_arquivo
+    )
+
+    # Mantém apenas as linhas de dados (após o cabeçalho)
+    df_origem = df_origem.iloc[
+        indice_cabecalho + 1:
+    ].copy()
+
+    # Remove linhas completamente vazias
+    df_origem.dropna(
+        how="all",
+        inplace=True
+    )
+
+    # Mantém apenas linhas que tenham a Conta (Coluna A) preenchida
+    conta_preenchida = (
+        df_origem.iloc[:, 0]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .ne("")
+    )
+
+    df_origem = df_origem.loc[
+        conta_preenchida
+    ].copy()
+
+    df_origem.reset_index(
+        drop=True,
+        inplace=True
+    )
+
+    if df_origem.empty:
+        raise ValueError(
+            f"O arquivo do cliente Auriverde '{nome_arquivo}' não possui "
+            "linhas válidas para tabulação."
+        )
+
+    df_destino = pd.DataFrame(
+        index=df_origem.index
+    )
+
+    # Coluna A: valor fixo
+    df_destino["Atividade"] = "Geral"
+
+    # Coluna B: Conta (Origem A)
+    df_destino["Conta"] = (
+        df_origem.iloc[:, 0]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Coluna D: Cód. Reduzido (Origem B com formatação para evitar .0)
+    def parse_reduzido(x):
+        if pd.isna(x) or str(x).strip() == "":
+            return ""
+        if isinstance(x, float) and x.is_integer():
+            return str(int(x))
+        return str(x).strip()
+
+    df_destino["Cód. Reduzido"] = df_origem.iloc[:, 1].apply(parse_reduzido)
+
+    # Coluna C: Nome (Origem C que caiu como Saldo Anterior nos títulos originais)
+    df_destino["Nome"] = (
+        df_origem.iloc[:, 2]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+    )
+
+    # Valores numéricos puros (Débito e Crédito)
+    debito = pd.to_numeric(
+        df_origem.iloc[:, 3],
+        errors="coerce"
+    ).fillna(0.0)
+
+    credito = pd.to_numeric(
+        df_origem.iloc[:, 4],
+        errors="coerce"
+    ).fillna(0.0)
+
+    # Saldo Atual
+    saldo_atual = pd.to_numeric(
+        df_origem.iloc[:, 6],
+        errors="coerce"
+    ).fillna(0.0)
+
+    # Cálculos dinâmicos
+    movimento = debito - credito
+    saldo_anterior = saldo_atual - movimento
+
+    df_destino["Saldo Anterior"] = saldo_anterior.round(2)
+    df_destino["Débito"] = debito.round(2)
+    df_destino["Crédito"] = credito.round(2)
+    df_destino["Movimento"] = movimento.round(2)
+    df_destino["Saldo Acumulado"] = saldo_atual.round(2)
+
+# ==============================================================================
+# TRANSFORMAÇÃO DO BALANCETE COOABRIEL (BIAGRE)
+# ==============================================================================
+
+def _aplicar_quebra_numero(base, complemento):
+    """
+    Junta a base do número com a parte que 'vazou' para a linha de baixo,
+    injetando as casas decimais corretamente caso tenham sido omitidas.
+    """
+    base_str = str(base).strip() if pd.notna(base) else ""
+    comp_str = str(complemento).strip() if pd.notna(complemento) else ""
+    
+    if not comp_str:
+        return base_str
+        
+    if "," in base_str:
+        # Se a base já tem vírgula, ex: '1.234,5' + '9' = '1.234,59'
+        return base_str + comp_str
+    elif "." in base_str:
+        partes = base_str.split('.')
+        # Se o ponto for o decimal (ex: '1684731931.1') junta direto
+        if len(partes[-1]) <= 2:
+            return base_str + comp_str
+        else:
+            # Se for separador de milhar (ex '1.887.918.607'), injeta a vírgula
+            return base_str + ",0" + comp_str
+    else:
+        # Se não tem ponto nem vírgula, a base é inteira (ex: '1887918607') 
+        # e o vazamento é o decimal que faltava.
+        return base_str + ".0" + comp_str
+
+def _converter_numero_cooabriel(valor):
+    """
+    Converte valores monetários do cliente Cooabriel para float.
+    Trata formatações como '2.892.239.571,50' ou '0,00'.
+    """
+    if pd.isna(valor):
+        return 0.0
+
+    if isinstance(valor, (int, float)):
+        return float(valor)
+
+    texto = str(valor).strip()
+
+    if not texto:
+        return 0.0
+
+    texto = texto.replace("\xa0", "").replace(" ", "")
+
+    if "," in texto:
+        texto = texto.replace(".", "").replace(",", ".")
+
+    try:
+        return float(texto)
+    except (ValueError, TypeError):
+        return 0.0
+
+def _aplicar_natureza_cooabriel(valor, natureza):
+    """
+    Aplica o sinal do saldo conforme a natureza contábil.
+    Regras: D = positivo, C = negativo.
+    """
+    numero = _converter_numero_cooabriel(valor)
+
+    if pd.isna(natureza):
+        return numero
+
+    natureza_texto = str(natureza).strip().upper()
+
+    if natureza_texto == "D":
+        return abs(numero)
+    if natureza_texto == "C":
+        return -abs(numero)
+
+    return numero
+
+def transformar_balancete_cooabriel(caminho_arquivo):
+    """
+    Transforma o balancete Excel do cliente Cooabriel.
+
+    Este layout possui um problema crônico de exportação onde 
+    valores numéricos e nomes extensos de contas quebram para a linha de baixo.
+    O código reconstrói os registros "órfãos" colando-os na linha principal.
+    """
+    nome_arquivo = os.path.basename(caminho_arquivo)
+    extensao = os.path.splitext(caminho_arquivo)[1].lower()
+
+    if extensao not in {".xls", ".xlsx"}:
+        raise ValueError(f"O arquivo '{nome_arquivo}' não é um arquivo Excel válido.")
+
+    engine = "xlrd" if extensao == ".xls" else "openpyxl"
+
+    try:
+        df_raw = pd.read_excel(
+            caminho_arquivo, 
+            sheet_name=0, 
+            header=None, 
+            dtype=str, 
+            engine=engine
+        )
+    except Exception as erro:
+        raise ValueError(f"Não foi possível ler o arquivo '{nome_arquivo}'. Erro: {erro}")
+
+    if df_raw.shape[1] < 9:
+        raise ValueError(
+            f"O arquivo '{nome_arquivo}' possui {df_raw.shape[1]} coluna(s), "
+            "mas o layout Cooabriel exige 9 colunas (Conta, Chave, Descrição, SA, Nat, Déb, Créd, SF, Nat)."
+        )
+
+    registros_corrigidos = []
+    ultimo_registro = None
+
+    # Algoritmo de varredura e reconstrução de quebras de linha
+    for i, row in df_raw.iterrows():
+        conta = str(row[0]).strip() if pd.notna(row[0]) else ""
+        desc = str(row[2]).strip() if pd.notna(row[2]) else ""
+
+        # Ignora cabeçalhos principais
+        if conta in ["Conta", "COOP AGRARIA DOS CAFEICULTORES DE SAO GABRIEL", 
+                     "Balancete de Verificação"] or conta.startswith("CNPJ:"):
+            continue
+
+        # Se a Conta está vazia, esta linha pode ser lixo de paginação ou a metade de uma linha cortada
+        if not conta:
+            col7 = str(row[7]).strip() if pd.notna(row[7]) else ""
+            
+            # Ignora quebras de página literais
+            if "FOLHA:" in col7:
+                continue
+
+            # Reconstrução dos dados vazados na linha inferior
+            if ultimo_registro is not None:
+                if pd.notna(row[3]) and str(row[3]).strip():
+                    ultimo_registro["Saldo Anterior"] = _aplicar_quebra_numero(ultimo_registro["Saldo Anterior"], row[3])
+                if pd.notna(row[5]) and str(row[5]).strip():
+                    ultimo_registro["Débitos"] = _aplicar_quebra_numero(ultimo_registro["Débitos"], row[5])
+                if pd.notna(row[6]) and str(row[6]).strip():
+                    ultimo_registro["Créditos"] = _aplicar_quebra_numero(ultimo_registro["Créditos"], row[6])
+                if pd.notna(row[7]) and str(row[7]).strip():
+                    ultimo_registro["Saldo Final"] = _aplicar_quebra_numero(ultimo_registro["Saldo Final"], row[7])
+                
+                # Se o nome quebrou (Ex: TITULOS E VA), junta com um espaço
+                if desc:
+                    ultimo_registro["Nome"] += " " + desc
+            continue
+
+        # Linha contábil principal identificada
+        record = {
+            "Conta": conta,
+            "Chave": str(row[1]).strip() if pd.notna(row[1]) else "",
+            "Nome": desc,
+            "Saldo Anterior": str(row[3]).strip() if pd.notna(row[3]) else "0",
+            "Nat SA": str(row[4]).strip() if pd.notna(row[4]) else "",
+            "Débitos": str(row[5]).strip() if pd.notna(row[5]) else "0",
+            "Créditos": str(row[6]).strip() if pd.notna(row[6]) else "0",
+            "Saldo Final": str(row[7]).strip() if pd.notna(row[7]) else "0",
+            "Nat SF": str(row[8]).strip() if pd.notna(row[8]) else ""
+        }
+        registros_corrigidos.append(record)
+        ultimo_registro = record
+
+    if not registros_corrigidos:
+        raise ValueError(f"Nenhuma conta contábil foi encontrada no arquivo '{nome_arquivo}'.")
+
+    # Transforma os dicionários limpos em DataFrame
+    df_registros = pd.DataFrame(registros_corrigidos)
+    df_destino = pd.DataFrame(index=df_registros.index)
+
+    df_destino["Atividade"] = "Geral"
+    df_destino["Conta"] = df_registros["Conta"]
+    df_destino["Nome"] = df_registros["Nome"]
+    df_destino["Cód. Reduzido"] = df_registros["Chave"]
+
+    # Converte os números e aplica a natureza (Positivo = D, Negativo = C)
+    saldo_anterior = pd.Series([
+        _aplicar_natureza_cooabriel(val, nat) 
+        for val, nat in zip(df_registros["Saldo Anterior"], df_registros["Nat SA"])
+    ])
+    
+    debito = df_registros["Débitos"].apply(_converter_numero_cooabriel)
+    credito = df_registros["Créditos"].apply(_converter_numero_cooabriel)
+    
+    saldo_acumulado = pd.Series([
+        _aplicar_natureza_cooabriel(val, nat) 
+        for val, nat in zip(df_registros["Saldo Final"], df_registros["Nat SF"])
+    ])
+
+    df_destino["Saldo Anterior"] = saldo_anterior
+    df_destino["Débito"] = debito
+    df_destino["Crédito"] = credito
+    df_destino["Movimento"] = debito - credito
+    df_destino["Saldo Acumulado"] = saldo_acumulado
+
+# ==============================================================================
+# TRANSFORMAÇÃO DO BALANCETE COOPERATIVA A1
+# ==============================================================================
+
+def _converter_numero_cooperativa_a1(valor):
+    """
+    Converte valores monetários do TXT da Cooperativa A1 para float.
+    Trata formatações atípicas como '1948.655.803,10' ou negativos '-37.224.930,08'.
+    """
+    if not valor:
+        return 0.0
+    
+    texto = str(valor).strip()
+    if not texto:
+        return 0.0
+
+    # Remove o ponto de milhar e troca a vírgula decimal por ponto
+    texto = texto.replace(".", "").replace(",", ".")
+    
+    try:
+        return float(texto)
+    except (ValueError, TypeError):
+        return 0.0
+
+def transformar_balancete_cooperativa_a1(caminho_arquivo):
+    """
+    Transforma o balancete TXT do cliente Cooperativa A1.
+    
+    Lê o arquivo texto linha a linha utilizando expressões regulares
+    para driblar cabeçalhos e quebras de página. Calcula o Saldo Anterior
+    dinamicamente (Saldo Atual - Movimento).
+    """
+    nome_arquivo = os.path.basename(caminho_arquivo)
+    
+    # Tenta múltiplas codificações para abrir o TXT legado
+    codificacoes = ["utf-8-sig", "cp1252", "latin-1"]
+    linhas = []
+    
+    for codificacao in codificacoes:
+        try:
+            with open(caminho_arquivo, mode="r", encoding=codificacao) as arquivo:
+                linhas = arquivo.readlines()
+            break
+        except UnicodeDecodeError:
+            continue
+        except OSError as erro:
+            raise ValueError(f"Não foi possível abrir o arquivo TXT '{nome_arquivo}'. Erro: {erro}")
+            
+    if not linhas:
+        raise ValueError(f"Não foi possível ler o arquivo '{nome_arquivo}' ou ele está vazio.")
+
+    # Regex para capturar: Conta, Nome, Debito, Credito, Movimento, Saldo Atual
+    # Ex: ' 01 01 01   DISPONIVEL   593.578.129,84   642.748.012,78   -49.169.882,94   632.598.142,41'
+    regex_linha_contabil = re.compile(
+        r"^\s*([\d\s]+)\s+(.*?)\s+([-\d.,]+)\s+([-\d.,]+)\s+([-\d.,]+)\s+([-\d.,]+)\s*$"
+    )
+    
+    registros = []
+    
+    for linha in linhas:
+        # Ignora as quebras de página (form feed) comuns no layout
+        linha_limpa = linha.replace("\x0c", "")
+        
+        match = regex_linha_contabil.match(linha_limpa)
+        if match:
+            conta_com_espacos = match.group(1).strip()
+            nome_conta = match.group(2).strip()
+            
+            # Converte as colunas monetárias
+            debito = _converter_numero_cooperativa_a1(match.group(3))
+            credito = _converter_numero_cooperativa_a1(match.group(4))
+            movimento = _converter_numero_cooperativa_a1(match.group(5))
+            saldo_atual = _converter_numero_cooperativa_a1(match.group(6))
+            
+            # O Saldo Anterior é oculto no relatório, fazemos a engenharia reversa
+            saldo_anterior = saldo_atual - movimento
+            
+            # O Código Reduzido será a conta sem os espaços
+            codigo_reduzido = conta_com_espacos.replace(" ", "")
+            
+            registros.append({
+                "Atividade": "Geral",
+                "Conta": conta_com_espacos,
+                "Nome": nome_conta,
+                "Cód. Reduzido": codigo_reduzido,
+                "Saldo Anterior": round(saldo_anterior, 2),
+                "Débito": round(debito, 2),
+                "Crédito": round(credito, 2),
+                "Movimento": round(movimento, 2),
+                "Saldo Acumulado": round(saldo_atual, 2)
+            })
+
+    if not registros:
+        raise ValueError(f"Nenhuma conta contábil válida foi encontrada no arquivo '{nome_arquivo}'.")
+
+    df_destino = pd.DataFrame(registros)
 
     return df_destino
