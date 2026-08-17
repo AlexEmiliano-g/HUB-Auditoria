@@ -2792,4 +2792,136 @@ def transformar_balancete_cooperativa_a1(caminho_arquivo):
 
     df_destino = pd.DataFrame(registros)
 
+# ==============================================================================
+# TRANSFORMAÇÃO DO BALANCETE LANGUIRU
+# ==============================================================================
+
+def transformar_balancete_languiru(caminho_arquivo):
+    """
+    Transforma o balancete Excel do cliente Languiru.
+    
+    Bypass: Usa uma leitura iterativa profunda via openpyxl para burlar 
+    a trava de dimensões e extrair as células reais, garantindo a ordem 
+    correta das colunas no padrão HUB.
+    """
+    import os
+    import pandas as pd
+    import warnings
+    import re
+    import openpyxl
+    
+    nome_arquivo = os.path.basename(caminho_arquivo)
+    extensao = os.path.splitext(caminho_arquivo)[1].lower()
+
+    if extensao not in {".xls", ".xlsx"}:
+        raise ValueError(f"O arquivo '{nome_arquivo}' não é um arquivo Excel válido.")
+
+    df_raw = None
+    data_start_idx = None
+
+    if extensao == ".xlsx":
+        # Usa openpyxl nativo iterando célula a célula para ignorar as dimensões corrompidas do ERP
+        try:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                wb = openpyxl.load_workbook(caminho_arquivo, data_only=True)
+                for sheet in wb.sheetnames:
+                    ws = wb[sheet]
+                    data = []
+                    # Lê de fato o que está preenchido, ignorando tags XML mentirosas
+                    for row in ws.iter_rows(values_only=True):
+                        data.append(row)
+                    df_temp = pd.DataFrame(data)
+                    
+                    if df_temp.empty or df_temp.shape[1] < 7:
+                        continue
+                        
+                    for i, row in df_temp.iterrows():
+                        col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
+                        if re.match(r"^\.+(?:\s*)?\d", col0):
+                            df_raw = df_temp
+                            data_start_idx = i
+                            break
+                    if data_start_idx is not None:
+                        break
+        except Exception as e:
+            raise ValueError(f"Não foi possível abrir o arquivo '{nome_arquivo}'. Erro: {e}")
+            
+    else:
+        # Para arquivos .xls tradicionais usamos o xlrd
+        engine = "xlrd"
+        try:
+            xls = pd.ExcelFile(caminho_arquivo, engine=engine)
+            for sheet in xls.sheet_names:
+                df_temp = pd.read_excel(xls, sheet_name=sheet, header=None, dtype=str)
+                if df_temp.shape[1] >= 7:
+                    for i, row in df_temp.iterrows():
+                        col0 = str(row.iloc[0]).strip() if pd.notna(row.iloc[0]) else ""
+                        if re.match(r"^\.+(?:\s*)?\d", col0):
+                            df_raw = df_temp
+                            data_start_idx = i
+                            break
+                if data_start_idx is not None:
+                    break
+        except Exception as e:
+            raise ValueError(f"Não foi possível abrir o arquivo '{nome_arquivo}'. Erro: {e}")
+
+    if df_raw is None or data_start_idx is None:
+        raise ValueError(
+            f"Não foi possível identificar os dados contábeis no arquivo '{nome_arquivo}'. "
+            "O sistema varreu as abas e não encontrou o padrão de contas (ex: '..01') na primeira coluna."
+        )
+
+    # Isola apenas a área de dados a partir da linha encontrada (já exclui cabeçalhos)
+    df_data = df_raw.iloc[data_start_idx:].copy()
+    
+    # Limpa o dataframe
+    df_data.dropna(axis=1, how='all', inplace=True)
+    df_data.dropna(subset=[df_data.columns[0]], inplace=True)
+    df_data = df_data[df_data[df_data.columns[0]].astype(str).str.strip() != ""]
+    df_data.reset_index(drop=True, inplace=True)
+
+    if df_data.empty:
+        raise ValueError(f"Nenhum dado contábil válido encontrado no arquivo '{nome_arquivo}'.")
+
+    # Função lambda interna para cortar os pontos
+    def _remover_dois_pontos_iniciais(val):
+        texto = str(val).strip()
+        if texto.startswith(".."):
+            return texto[2:]
+        elif texto.startswith("."): 
+            return texto[1:]
+        return texto
+
+    conta_formatada = df_data.iloc[:, 0].apply(_remover_dois_pontos_iniciais)
+    
+    # Constrói o Dataframe final com a ORDEM DAS COLUNAS EXATA exigida pelo padrão
+    df_destino = pd.DataFrame(index=df_data.index)
+    df_destino["Atividade"] = "Geral"
+    df_destino["Conta"] = conta_formatada
+    df_destino["Nome"] = df_data.iloc[:, 2].fillna("").astype(str).str.strip()
+    df_destino["Cód. Reduzido"] = df_data.iloc[:, 1].fillna("").astype(str).str.strip()
+    
+    # Higieniza a formatação contábil para cálculos precisos
+    def _to_float(val):
+        if pd.isna(val) or val is None: return 0.0
+        texto = str(val).replace('R$', '').replace(' ', '').strip()
+        if not texto: return 0.0
+        if ',' in texto and '.' in texto:
+            texto = texto.replace('.', '')
+        texto = texto.replace(',', '.')
+        try:
+            return float(texto)
+        except (ValueError, TypeError):
+            return 0.0
+            
+    debito = df_data.iloc[:, 4].apply(_to_float)
+    credito = df_data.iloc[:, 5].apply(_to_float)
+
+    df_destino["Saldo Anterior"] = df_data.iloc[:, 3].apply(_to_float)
+    df_destino["Débito"] = debito
+    df_destino["Crédito"] = credito
+    df_destino["Movimento"] = debito - credito
+    df_destino["Saldo Acumulado"] = df_data.iloc[:, 6].apply(_to_float)
+    
     return df_destino
