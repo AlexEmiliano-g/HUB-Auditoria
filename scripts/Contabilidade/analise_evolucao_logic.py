@@ -6,7 +6,22 @@ import numpy as np
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+import sys
+import os
 
+def obter_caminho_recurso(nome_arquivo):
+    """
+    Localiza o caminho absoluto do arquivo.
+    Funciona tanto no ambiente de desenvolvimento quanto no executável (.exe).
+    """
+    try:
+        # Quando compilado, o PyInstaller cria essa variável _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        # Se for script normal, usa o caminho da pasta atual
+        base_path = os.path.abspath(".")
+
+    return os.path.join(base_path, nome_arquivo)
 try:
     from openpyxl.drawing.image import Image
     HAS_PILLOW = True
