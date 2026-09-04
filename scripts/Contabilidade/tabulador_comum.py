@@ -2344,6 +2344,8 @@ def transformar_balancete_cooperlate(caminho_arquivo):
         df_registros["Saldo Acumulado"]
         .astype(float)
     )
+    
+    return df_destino
 
 # ==============================================================================
 # TRANSFORMAÇÃO DO BALANCETE AURIVERDE
