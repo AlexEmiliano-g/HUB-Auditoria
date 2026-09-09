@@ -12,6 +12,7 @@ try:
     from scripts.Contabilidade.sistemas import (
         auriverde,
         Coagril,
+        coasul,
         cooabriel,
         cooperativa_a1,
         Coopercargo,
@@ -30,6 +31,7 @@ except ModuleNotFoundError:
     from sistemas import (
         auriverde,
         Coagril,
+        coasul,
         cooabriel,
         cooperativa_a1,
         Coopercargo,
@@ -56,6 +58,7 @@ except ModuleNotFoundError:
 SISTEMAS_REGISTRADOS = {
     "Auriverde":auriverde.processar,
     "Coagril": Coagril.processar,
+    "Coasul": coasul.processar,
     "Cooabriel": cooabriel.processar,
     "Cooperativa A1": cooperativa_a1.processar,
     "Coopercargo": Coopercargo.processar,
