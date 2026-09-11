@@ -12,6 +12,7 @@ try:
     from scripts.Contabilidade.sistemas import (
         agropan,
         auriverde,
+        camnpal,
         Coagril,
         coasul,
         cooabriel,
@@ -19,6 +20,7 @@ try:
         Coopercargo,
         Cooperlate,
         Cooperoque,
+        coopatrigo,
         FecoagroSC,
         fuga,
         girandosol,
@@ -33,6 +35,7 @@ except ModuleNotFoundError:
     from sistemas import (
         agropan,
         auriverde,
+        camnpal,
         Coagril,
         coasul,
         cooabriel,
@@ -40,6 +43,7 @@ except ModuleNotFoundError:
         Coopercargo,
         Cooperlate,
         Cooperoque,
+        coopatrigo,
         FecoagroSC,
         fuga,
         girandosol,
@@ -62,6 +66,7 @@ except ModuleNotFoundError:
 SISTEMAS_REGISTRADOS = {
     "Agropan": agropan.processar,
     "Auriverde":auriverde.processar,
+    "Camnpal": camnpal.processar,
     "Coagril": Coagril.processar,
     "Coasul": coasul.processar,
     "Cooabriel": cooabriel.processar,
@@ -69,6 +74,7 @@ SISTEMAS_REGISTRADOS = {
     "Coopercargo": Coopercargo.processar,
     "Cooperlate": Cooperlate.processar,
     "Cooperoque": Cooperoque.processar,
+    "Coopatrigo": coopatrigo.processar,
     "Fecoagro SC": FecoagroSC.processar,
     "Fuga": fuga.processar,
     "Girando Sol": girandosol.processar,
