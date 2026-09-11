@@ -1,6 +1,7 @@
 import os
 import warnings
 import pandas as pd
+import re
 
 # 1. IMPORTA APENAS A FERRAMENTA GLOBAL NECESSÁRIA
 try:
@@ -11,29 +12,6 @@ except ModuleNotFoundError:
 # ==============================================================================
 # FUNÇÕES AUXILIARES PRIVADAS DA COOABRIEL
 # ==============================================================================
-
-def _aplicar_quebra_numero(base, complemento):
-    """
-    Junta a base do número com a parte que 'vazou' para a linha de baixo,
-    injetando as casas decimais corretamente caso tenham sido omitidas.
-    """
-    base_str = str(base).strip() if pd.notna(base) else ""
-    comp_str = str(complemento).strip() if pd.notna(complemento) else ""
-    
-    if not comp_str:
-        return base_str
-        
-    if "," in base_str:
-        return base_str + comp_str
-    elif "." in base_str:
-        partes = base_str.split('.')
-        if len(partes[-1]) <= 2:
-            return base_str + comp_str
-        else:
-            return base_str + ",0" + comp_str
-    else:
-        return base_str + ".0" + comp_str
-
 
 def _converter_numero_cooabriel(valor):
     """
@@ -60,6 +38,39 @@ def _converter_numero_cooabriel(valor):
         return float(texto)
     except (ValueError, TypeError):
         return 0.0
+
+
+def _aplicar_quebra_numero(base, complemento):
+    """
+    Junta a base do número com a parte que 'vazou' para a linha de baixo.
+    Usa formatação matemática para evitar erros catastróficos de leitura 
+    quando o Excel omite o ",0".
+    """
+    base_str = str(base).strip() if pd.notna(base) else ""
+    comp_str = str(complemento).strip() if pd.notna(complemento) else ""
+    
+    # Garante que o complemento contenha apenas os números que vazaram
+    comp_str = re.sub(r"\D", "", comp_str)
+    
+    if not comp_str:
+        return base_str
+    if not base_str:
+        return comp_str
+        
+    # Converte a base incompleta ignorando as formatações nocivas do Excel
+    val = _converter_numero_cooabriel(base_str)
+    
+    # Força o formato com 2 casas decimais. Ex: 1887918607.0 -> "1887918607.00"
+    val_fmt = f"{val:.2f}"
+    
+    # Se o complemento é 1 dígito (ex: '4'), injeta e substitui o último zero do centavo.
+    if len(comp_str) == 1:
+        return val_fmt[:-1] + comp_str
+    # Se o complemento for 2 dígitos (ex: '45'), substitui as duas casas decimais.
+    elif len(comp_str) == 2:
+        return val_fmt[:-2] + comp_str
+    else:
+        return val_fmt + comp_str
 
 
 def _aplicar_natureza_cooabriel(valor, natureza):
@@ -121,6 +132,7 @@ def transformar_balancete_cooabriel(caminho_arquivo):
     # Algoritmo de varredura e reconstrução de quebras de linha
     for i, row in df_raw.iterrows():
         conta = str(row[0]).strip() if pd.notna(row[0]) else ""
+        chave = str(row[1]).strip() if pd.notna(row[1]) else ""
         desc = str(row[2]).strip() if pd.notna(row[2]) else ""
 
         # Ignora cabeçalhos principais
@@ -128,13 +140,29 @@ def transformar_balancete_cooabriel(caminho_arquivo):
                      "Balancete de Verificação"] or conta.startswith("CNPJ:"):
             continue
 
-        # Se a Conta está vazia, esta linha pode ser lixo de paginação ou a metade de uma linha cortada
-        if not conta:
-            col7 = str(row[7]).strip() if pd.notna(row[7]) else ""
-            if "FOLHA:" in col7:
-                continue
+        # Verifica se é rodapé (Folha/Paginação)
+        texto_linha = " ".join([str(x) for x in row.values if pd.notna(x)]).upper()
+        if "FOLHA:" in texto_linha or "MÊS/ANO:" in texto_linha or "MES/ANO:" in texto_linha:
+            continue
 
+        # IDENTIFICAÇÃO DE LINHA QUEBRADA (CONTINUAÇÃO)
+        # Como toda conta contábil real no Cooabriel tem uma Chave, se a chave estiver vazia,
+        # significa que a linha é um fragmento (continuação) da conta anterior.
+        if not chave:
             if ultimo_registro is not None:
+                # 1. Junta pedaço da Conta (removendo vírgulas ou pontos indesejados no início)
+                if conta:
+                    clean_conta = re.sub(r"^[.,]", "", conta)
+                    ultimo_registro["Conta"] += clean_conta
+                    
+                # 2. Junta pedaço da Descrição
+                if desc:
+                    if ultimo_registro["Nome"]:
+                        ultimo_registro["Nome"] += " " + desc
+                    else:
+                        ultimo_registro["Nome"] = desc
+
+                # 3. Junta Valores com injeção matemática exata
                 if pd.notna(row[3]) and str(row[3]).strip():
                     ultimo_registro["Saldo Anterior"] = _aplicar_quebra_numero(ultimo_registro["Saldo Anterior"], row[3])
                 if pd.notna(row[5]) and str(row[5]).strip():
@@ -143,14 +171,12 @@ def transformar_balancete_cooabriel(caminho_arquivo):
                     ultimo_registro["Créditos"] = _aplicar_quebra_numero(ultimo_registro["Créditos"], row[6])
                 if pd.notna(row[7]) and str(row[7]).strip():
                     ultimo_registro["Saldo Final"] = _aplicar_quebra_numero(ultimo_registro["Saldo Final"], row[7])
-                if desc:
-                    ultimo_registro["Nome"] += " " + desc
             continue
 
-        # Linha contábil principal identificada
+        # Se tem chave, é um novo registro válido
         record = {
             "Conta": conta,
-            "Chave": str(row[1]).strip() if pd.notna(row[1]) else "",
+            "Chave": chave,
             "Nome": desc,
             "Saldo Anterior": str(row[3]).strip() if pd.notna(row[3]) else "0",
             "Nat SA": str(row[4]).strip() if pd.notna(row[4]) else "",

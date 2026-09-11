@@ -1,12 +1,13 @@
 import os
 import shutil
 import tempfile
+import re
 import pandas as pd
 import numpy as np
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
-from openpyxl.chart import LineChart, Reference # Importação vital para os gráficos
+from openpyxl.chart import LineChart, Reference
 
 try:
     from openpyxl.drawing.image import Image
@@ -81,7 +82,7 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     contas_balancete = contas_balancete[contas_balancete['Conta_Clean'] != '']
 
     # =========================================================================
-    # 2. LEITURA OU AUTO-GERAÇÃO DO PLANO DE CONTAS
+    # 2. LEITURA INTELIGENTE (RADAR DE VERSÕES) OU AUTO-GERAÇÃO DO PLANO
     # =========================================================================
     colunas_padrao = ['Chave Cliente', 'Chave D&M', 'Classificação', 'Descrição', 'Sint./An.', 'At/Pas/Res', 'Indice', 'Observação']
     df_plano = pd.DataFrame(columns=colunas_padrao)
@@ -100,8 +101,24 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     else:
         caminho_leitura_params = caminho_entrada
         with pd.ExcelFile(caminho_leitura_params) as xl_params:
-            nomes_possiveis = ['planodecontas', 'planodeconta', 'planoconta', 'parametros', 'cadastroparametros']
-            abas_encontradas = [sht for sht in xl_params.sheet_names if str(sht).lower().replace(" ", "").replace("_", "").split("(")[0].strip() in nomes_possiveis]
+            abas_candidatas = []
+            for sht in xl_params.sheet_names:
+                sht_norm = str(sht).lower().replace(" ", "").replace("_", "").split("(")[0].strip()
+                # Verifica se é uma aba de Plano de Contas/Parâmetros
+                if (sht_norm.startswith('planodeconta') or 
+                    sht_norm.startswith('planoconta') or 
+                    sht_norm.startswith('parametro') or 
+                    sht_norm.startswith('cadastroparametro')):
+                    
+                    # Extrai o número da versão com Regex (ex: v2, v3). Se não tiver, é v1.
+                    match = re.search(r'v?(\d+)$', sht_norm)
+                    ver = int(match.group(1)) if match else 1
+                    abas_candidatas.append((ver, sht))
+            
+            if abas_candidatas:
+                # Classifica pelas maiores versões e pega a aba vencedora (A mais atual)
+                abas_candidatas.sort(key=lambda x: x[0], reverse=True)
+                abas_encontradas = [abas_candidatas[0][1]]
 
     if abas_encontradas:
         with pd.ExcelFile(caminho_leitura_params) as xl_params:
@@ -127,30 +144,44 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
         df_plano['Chave_Clean'] = df_plano[0]
 
         if df_plano.empty:
-            raise ValueError("A aba de Plano de Contas está vazia ou os códigos das contas não foram identificados. Verifique o arquivo.")
-
-        log_erros.append("Informação: Estrutura lida por posições (A-H). Pontuações (.) removidas internamente.")
-        
-        orfao_mask = ~contas_balancete['Conta_Clean'].isin(df_plano['Chave_Clean'])
-        contas_orfas = contas_balancete[orfao_mask].copy()
-        
-        if not contas_orfas.empty and inclusao_inteligente:
-            log_erros.append(f"Informação: {len(contas_orfas)} conta(s) órfãs identificadas e adicionadas ao plano de contas.")
-            novas_linhas = pd.DataFrame({
-                0: contas_orfas['Conta_Clean'],
+            # FALLBACK DE SEGURANÇA: Aba encontrada, mas estava vazia/corrompida
+            log_erros.append(f"Aviso: A aba '{abas_encontradas[-1]}' foi encontrada, mas estava vazia ou inválida. O sistema a ignorou e gerou uma versão nova e segura automaticamente.")
+            precisou_gerar_plano = True
+            df_plano = pd.DataFrame({
+                0: contas_balancete['Conta_Clean'],
                 1: '',
-                2: contas_orfas['Cod. Reduzido'],
-                3: contas_orfas['Descrição'],
+                2: contas_balancete['Cod. Reduzido'],
+                3: contas_balancete['Descrição'],
                 4: '',
                 5: '',
                 6: '0',
-                7: 'Adicionada por classificação automática',
-                'Chave_Clean': contas_orfas['Conta_Clean']
+                7: 'Gerada automaticamente via Balancete',
+                'Chave_Clean': contas_balancete['Conta_Clean']
             })
-            df_plano = pd.concat([df_plano, novas_linhas], ignore_index=True)
+        else:
+            # FLUXO NORMAL DE INTEGRIDADE
+            log_erros.append(f"Informação: Estrutura carregada com sucesso da aba '{abas_encontradas[-1]}'.")
+            
+            orfao_mask = ~contas_balancete['Conta_Clean'].isin(df_plano['Chave_Clean'])
+            contas_orfas = contas_balancete[orfao_mask].copy()
+            
+            if not contas_orfas.empty and inclusao_inteligente:
+                log_erros.append(f"Informação: {len(contas_orfas)} conta(s) órfãs identificadas e adicionadas ao plano de contas.")
+                novas_linhas = pd.DataFrame({
+                    0: contas_orfas['Conta_Clean'],
+                    1: '',
+                    2: contas_orfas['Cod. Reduzido'],
+                    3: contas_orfas['Descrição'],
+                    4: '',
+                    5: '',
+                    6: '0',
+                    7: 'Adicionada por classificação automática',
+                    'Chave_Clean': contas_orfas['Conta_Clean']
+                })
+                df_plano = pd.concat([df_plano, novas_linhas], ignore_index=True)
     else:
         precisou_gerar_plano = True
-        log_erros.append("Informação: Nenhuma aba de Plano de Contas encontrada. O sistema gerou a aba de Parâmetros automaticamente e a salvou no seu balancete tabulado.")
+        log_erros.append("Informação: Nenhuma aba de Plano de Contas encontrada. O sistema gerou a estrutura automaticamente e a salvou no seu balancete tabulado.")
         df_plano = pd.DataFrame({
             0: contas_balancete['Conta_Clean'],
             1: '',
@@ -337,30 +368,37 @@ def executar_analise_evolucao(caminho_entrada, opcoes, regras=None):
     if precisou_gerar_plano and str(caminho_entrada).lower().endswith(('.xlsx', '.xlsb')):
         try:
             wb_in = load_workbook(caminho_entrada)
-            if "Plano de Contas" not in wb_in.sheetnames:
-                ws_in = wb_in.create_sheet("Plano de Contas")
-                for c_idx, col_name in enumerate(colunas_padrao_export, 1): 
-                    ws_in.cell(row=1, column=c_idx, value=col_name).font = f_aptos_bold
+            
+            # Geração Versionada da Aba Plano de Contas (Trava Não-Destrutiva)
+            nome_aba_salvar = "Plano de Contas"
+            counter_aba = 2
+            while nome_aba_salvar in wb_in.sheetnames:
+                nome_aba_salvar = f"Plano de Contas_v{counter_aba}"
+                counter_aba += 1
                 
-                for r_idx, (_, row) in enumerate(df_plano.iterrows()):
-                    obs_text = str(row[7]) 
-                    foi_ad = any(t in obs_text for t in ["Adicionada", "Auto-Classificada", "sugeriu", "Gerada"])
-                    
-                    for c_idx in range(8): 
-                        cel = ws_in.cell(row=r_idx+2, column=c_idx+1, value=str(row[c_idx]))
-                        cel.font = f_aptos
-                        if foi_ad and c_idx == 7: 
-                            cel.fill = fill_incl
+            ws_in = wb_in.create_sheet(nome_aba_salvar)
+            for c_idx, col_name in enumerate(colunas_padrao_export, 1): 
+                ws_in.cell(row=1, column=c_idx, value=col_name).font = f_aptos_bold
+            
+            for r_idx, (_, row) in enumerate(df_plano.iterrows()):
+                obs_text = str(row[7]) 
+                foi_ad = any(t in obs_text for t in ["Adicionada", "Auto-Classificada", "sugeriu", "Gerada"])
+                
+                for c_idx in range(8): 
+                    cel = ws_in.cell(row=r_idx+2, column=c_idx+1, value=str(row[c_idx]))
+                    cel.font = f_aptos
+                    if foi_ad and c_idx == 7: 
+                        cel.fill = fill_incl
 
-                ws_in.auto_filter.ref = ws_in.dimensions
-                for col in ws_in.columns: ws_in.column_dimensions[col[0].column_letter].width = 15
-                ws_in.column_dimensions['D'].width = 35 
-                ws_in.column_dimensions['H'].width = 65 
-                
-                wb_in.save(caminho_entrada)
+            ws_in.auto_filter.ref = ws_in.dimensions
+            for col in ws_in.columns: ws_in.column_dimensions[col[0].column_letter].width = 15
+            ws_in.column_dimensions['D'].width = 35 
+            ws_in.column_dimensions['H'].width = 65 
+            
+            wb_in.save(caminho_entrada)
             wb_in.close()
         except Exception as e:
-            log_erros.append(f"Aviso: Não foi possível salvar a aba 'Plano de Contas' no arquivo original pois ele está aberto. Detalhe: {e}")
+            log_erros.append(f"Aviso: Não foi possível salvar a nova versão da aba no arquivo original pois ele está aberto. Detalhe: {e}")
 
     ws_hist = wb.create_sheet("Balancete_Histórico")
     ws_hist.sheet_view.showGridLines = False 
@@ -903,34 +941,29 @@ def gerar_ptas_excel(caminho_origem, caminho_destino, caminho_anterior=None):
             # --- CRIAÇÃO DO GRÁFICO ---
             grafico = LineChart()
             grafico.title = f"Evolução - {d['desc']}"
-            grafico.style = 13 # Estilo corporativo limpo do Excel
+            grafico.style = 13 
             grafico.y_axis.title = "Saldo Absoluto (R$)"
             grafico.x_axis.title = "Meses"
             grafico.height = 8.5
             grafico.width = 16
-            grafico.legend.position = 'b' # Legenda na base para economizar espaço
+            grafico.legend.position = 'b' 
             
-            # Seleciona os dados do Mês 1 (Jan) ao Mês 12 (Dez) na tabela gerada
             dados_chart = Reference(ws_tab, min_col=3, min_row=r_atual, max_col=14, max_row=r_anterior)
             cats_chart = Reference(ws_tab, min_col=3, min_row=r_header, max_col=14, max_row=r_header)
             
             grafico.add_data(dados_chart, from_rows=True, titles_from_data=False)
             grafico.set_categories(cats_chart)
             
-            # Configurações visuais das linhas
             if len(grafico.series) > 0:
                 grafico.series[0].name = "Ano Atual"
-                grafico.series[0].smooth = True # Curvas suaves
-                grafico.series[0].marker.symbol = "circle" # Marcadores nas intersecções dos meses
+                grafico.series[0].smooth = True 
+                grafico.series[0].marker.symbol = "circle" 
             if len(grafico.series) > 1:
                 grafico.series[1].name = "Ano Anterior"
                 grafico.series[1].smooth = True
                 grafico.series[1].marker.symbol = "circle"
                 
-            # Injeta o Gráfico à direita da tabela (Coluna Q)
             ws_tab.add_chart(grafico, f"Q{r_header}")
-            
-            # Salto vertical ampliado (18 linhas) para o gráfico não engolir a próxima tabela
             r_cursor += 18 
 
     if justificadas:
