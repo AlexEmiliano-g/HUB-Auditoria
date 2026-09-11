@@ -10,6 +10,7 @@
 # É imperativo manter a estrutura de uma importação por linha.
 try:
     from scripts.Contabilidade.sistemas import (
+        agropan,
         auriverde,
         Coagril,
         coasul,
@@ -30,6 +31,7 @@ try:
     )
 except ModuleNotFoundError:
     from sistemas import (
+        agropan,
         auriverde,
         Coagril,
         coasul,
@@ -58,6 +60,7 @@ except ModuleNotFoundError:
 # 3. É obrigatório manter a vírgula (,) após o último item do dicionário.
 # ==============================================================================
 SISTEMAS_REGISTRADOS = {
+    "Agropan": agropan.processar,
     "Auriverde":auriverde.processar,
     "Coagril": Coagril.processar,
     "Coasul": coasul.processar,
