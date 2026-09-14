@@ -9,6 +9,16 @@ from openpyxl.styles import Font, Border, Side, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.chart import LineChart, Reference
 
+def obter_caminho_recurso(nome_arquivo):
+    """Garante que a imagem seja encontrada tanto rodando no VSCode quanto no .exe compilado."""
+    import sys, os
+    try:
+        # PyInstaller cria uma pasta temporária e guarda o caminho em _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, nome_arquivo)
+
 try:
     from openpyxl.drawing.image import Image
     HAS_PILLOW = True
