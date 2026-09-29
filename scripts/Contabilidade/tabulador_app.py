@@ -158,7 +158,7 @@ class TabuladorPythonApp(QWidget):
         if event.mimeData().hasUrls():
             for url in event.mimeData().urls():
                 caminho = url.toLocalFile()
-                if caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt')):
+                if caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt', '.pdf')):
                     event.acceptProposedAction()
                     return
         event.ignore()
@@ -169,7 +169,7 @@ class TabuladorPythonApp(QWidget):
             novos_arquivos = []
             for url in event.mimeData().urls():
                 caminho = url.toLocalFile()
-                if os.path.isfile(caminho) and caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt')):
+                if os.path.isfile(caminho) and caminho.lower().endswith(('.xlsx', '.xls', '.csv', '.txt', '.pdf')):
                     if caminho not in self.arquivos_selecionados:
                         novos_arquivos.append(caminho)
             
@@ -199,7 +199,7 @@ class TabuladorPythonApp(QWidget):
             self,
             "Selecione os Balancetes e Plano de Contas",
             "",
-            "Arquivos Suportados (*.xlsx *.xls *.csv *.txt);;Todos os Arquivos (*.*)"
+            "Arquivos Suportados (*.xlsx *.xls *.csv *.txt *.pdf);;Todos os Arquivos (*.*)"
         )
         if files:
             self.arquivos_selecionados = files
