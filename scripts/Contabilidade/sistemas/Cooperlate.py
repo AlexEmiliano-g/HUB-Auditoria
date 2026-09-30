@@ -352,6 +352,8 @@ def _localizar_cabecalho_cooperlate(df_origem, nome_arquivo):
             "CTA. RED",
             "CTA RED.",
             "CTA. RED.",
+            "RED",
+            "RED.",
         }
 
         if coluna_a_valida and coluna_b_valida:
@@ -359,7 +361,7 @@ def _localizar_cabecalho_cooperlate(df_origem, nome_arquivo):
 
     raise ValueError(
         f"Não foi possível localizar o cabeçalho com as colunas "
-        f"'Conta' e 'Cta red' no arquivo '{nome_arquivo}'."
+        f"'Conta', 'Cta red' ou 'RED' no arquivo '{nome_arquivo}'."
     )
 
 

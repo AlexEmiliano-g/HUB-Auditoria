@@ -8,6 +8,7 @@
 # O bloco try/except abaixo garante que o módulo funcione corretamente tanto 
 # quando integrado ao HUB principal, quanto executado isoladamente para testes. 
 # É imperativo manter a estrutura de uma importação por linha.
+
 try:
     from scripts.Contabilidade.sistemas import (
         agropan,
@@ -21,7 +22,7 @@ try:
         Coopercargo,
         Cooperlate,
         Cooperoque,
-        cotravale,
+        cootravale,
         cotrijuc,
         cotrimaio,
         cotripal,
@@ -35,8 +36,8 @@ try:
         ouro_do_sul,
         paradiso_giovanella,
         SAP,
-        soli3,
         serramar,
+        soli3,
         uniair,
         uniodontofederacao,
         useall,
@@ -54,7 +55,7 @@ except ModuleNotFoundError:
         Coopercargo,
         Cooperlate,
         Cooperoque,
-        cotravale,
+        cootravale,
         cotrijuc,
         cotrimaio,
         cotripal,
@@ -68,8 +69,8 @@ except ModuleNotFoundError:
         ouro_do_sul,
         paradiso_giovanella,
         SAP,
-        soli3,
         serramar,
+        soli3,
         uniair,
         uniodontofederacao,
         useall,
@@ -95,7 +96,7 @@ SISTEMAS_REGISTRADOS = {
     "Coopercargo": Coopercargo.processar,
     "Cooperlate": Cooperlate.processar,
     "Cooperoque": Cooperoque.processar,
-    "Cotravale": cotravale.processar,
+    "Cootravale": cootravale.processar,
     "Cotrijuc": cotrijuc.processar,
     "Cotrimaio": cotrimaio.processar,
     "Cotripal": cotripal.processar,
@@ -109,8 +110,8 @@ SISTEMAS_REGISTRADOS = {
     "Ouro do Sul": ouro_do_sul.processar,
     "Paradiso Giovanella": paradiso_giovanella.processar,
     "SAP": SAP.processar,
-    "Soli3": soli3.processar,
     "Serramar": serramar.processar,
+    "Soli3": soli3.processar,
     "Uniair": uniair.processar,
     "UniOdonto Federação": uniodontofederacao.processar,
     "Useall": useall.processar,

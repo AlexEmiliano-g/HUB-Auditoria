@@ -7,9 +7,9 @@ from datetime import date, datetime
 import pandas as pd
 
 
-EXTENSOES_VALIDAS_cotravale = {".xls", ".xlsx"}
+EXTENSOES_VALIDAS_cootravale = {".xls", ".xlsx"}
 
-COLUNAS_DESTINO_cotravale = [
+COLUNAS_DESTINO_cootravale = [
     "Atividade",
     "Conta",
     "Nome",
@@ -21,7 +21,7 @@ COLUNAS_DESTINO_cotravale = [
     "Saldo Acumulado",
 ]
 
-MESES_cotravale = {
+MESES_cootravale = {
     "JAN": 1, "JANEIRO": 1,
     "FEV": 2, "FEVEREIRO": 2,
     "MAR": 3, "MARCO": 3,
@@ -36,7 +36,7 @@ MESES_cotravale = {
     "DEZ": 12, "DEZEMBRO": 12,
 }
 
-TERMOS_RESULTADO_cotravale = {
+TERMOS_RESULTADO_cootravale = {
     "RESULTADO",
     "RESULTADOS",
     "RECEITA",
@@ -48,7 +48,7 @@ TERMOS_RESULTADO_cotravale = {
 }
 
 
-def _valor_vazio_cotravale(valor):
+def _valor_vazio_cootravale(valor):
     if valor is None:
         return True
     try:
@@ -57,21 +57,21 @@ def _valor_vazio_cotravale(valor):
         return False
 
 
-def _normalizar_texto_cotravale(valor):
-    if _valor_vazio_cotravale(valor):
+def _normalizar_texto_cootravale(valor):
+    if _valor_vazio_cootravale(valor):
         return ""
     texto = str(valor).replace("\xa0", " ")
     return re.sub(r"\s+", " ", texto).strip()
 
 
-def _normalizar_texto_comparacao_cotravale(valor):
-    texto = _normalizar_texto_cotravale(valor).upper()
+def _normalizar_texto_comparacao_cootravale(valor):
+    texto = _normalizar_texto_cootravale(valor).upper()
     texto = unicodedata.normalize("NFKD", texto)
     return "".join(c for c in texto if not unicodedata.combining(c))
 
 
-def _normalizar_classificacao_cotravale(valor):
-    if _valor_vazio_cotravale(valor):
+def _normalizar_classificacao_cootravale(valor):
+    if _valor_vazio_cootravale(valor):
         return ""
 
     if isinstance(valor, int):
@@ -82,7 +82,7 @@ def _normalizar_classificacao_cotravale(valor):
             return str(int(valor))
         return format(valor, "f").rstrip("0").rstrip(".")
 
-    texto = _normalizar_texto_cotravale(valor).replace(" ", "")
+    texto = _normalizar_texto_cootravale(valor).replace(" ", "")
 
     if re.fullmatch(r"\d+\.0+", texto):
         return texto.split(".", maxsplit=1)[0]
@@ -93,8 +93,8 @@ def _normalizar_classificacao_cotravale(valor):
     return texto
 
 
-def _converter_numero_cotravale(valor):
-    if _valor_vazio_cotravale(valor):
+def _converter_numero_cootravale(valor):
+    if _valor_vazio_cootravale(valor):
         return 0.0
 
     if isinstance(valor, (int, float)):
@@ -133,27 +133,27 @@ def _converter_numero_cotravale(valor):
     return round(numero, 2)
 
 
-def _ajustar_ano_cotravale(ano):
+def _ajustar_ano_cootravale(ano):
     ano = int(ano)
     return 2000 + ano if ano < 100 else ano
 
 
-def _interpretar_mes_cotravale(valor):
-    if _valor_vazio_cotravale(valor):
+def _interpretar_mes_cootravale(valor):
+    if _valor_vazio_cootravale(valor):
         return None
 
     if isinstance(valor, (datetime, date, pd.Timestamp)):
         return int(valor.year), int(valor.month)
 
-    texto = _normalizar_texto_comparacao_cotravale(valor)
+    texto = _normalizar_texto_comparacao_cootravale(valor)
     texto = texto.replace(".", "/").replace("-", "/")
     texto = re.sub(r"\s+", "", texto)
 
     correspondencia = re.fullmatch(r"([A-Z]+)/(\d{2}|\d{4})", texto)
     if correspondencia:
-        numero_mes = MESES_cotravale.get(correspondencia.group(1))
+        numero_mes = MESES_cootravale.get(correspondencia.group(1))
         if numero_mes:
-            return _ajustar_ano_cotravale(correspondencia.group(2)), numero_mes
+            return _ajustar_ano_cootravale(correspondencia.group(2)), numero_mes
 
     correspondencia = re.fullmatch(
         r"(0?[1-9]|1[0-2])/(\d{2}|\d{4})",
@@ -161,19 +161,19 @@ def _interpretar_mes_cotravale(valor):
     )
     if correspondencia:
         return (
-            _ajustar_ano_cotravale(correspondencia.group(2)),
+            _ajustar_ano_cootravale(correspondencia.group(2)),
             int(correspondencia.group(1)),
         )
 
     return None
 
 
-def _obter_engine_excel_cotravale(caminho_arquivo):
+def _obter_engine_excel_cootravale(caminho_arquivo):
     extensao = os.path.splitext(caminho_arquivo)[1].lower()
     return "xlrd" if extensao == ".xls" else "openpyxl"
 
 
-def _ler_primeira_aba_cotravale(caminho_arquivo):
+def _ler_primeira_aba_cootravale(caminho_arquivo):
     nome_arquivo = os.path.basename(caminho_arquivo)
     try:
         dataframe = pd.read_excel(
@@ -181,23 +181,23 @@ def _ler_primeira_aba_cotravale(caminho_arquivo):
             sheet_name=0,
             header=None,
             dtype=object,
-            engine=_obter_engine_excel_cotravale(caminho_arquivo),
+            engine=_obter_engine_excel_cootravale(caminho_arquivo),
         )
     except Exception as erro:
         raise ValueError(
-            f"Nao foi possivel ler o arquivo cotravale "
+            f"Nao foi possivel ler o arquivo cootravale "
             f"'{nome_arquivo}'. Erro: {erro}"
         ) from erro
 
     if dataframe.empty:
-        raise ValueError(f"O arquivo cotravale '{nome_arquivo}' esta vazio.")
+        raise ValueError(f"O arquivo cootravale '{nome_arquivo}' esta vazio.")
 
     return dataframe
 
 
-def _pontuacao_cabecalho_cotravale(linha):
+def _pontuacao_cabecalho_cootravale(linha):
     textos = [
-        _normalizar_texto_comparacao_cotravale(valor)
+        _normalizar_texto_comparacao_cootravale(valor)
         for valor in linha.tolist()
     ]
 
@@ -207,16 +207,16 @@ def _pontuacao_cabecalho_cotravale(linha):
         for termo in termos
     )
     meses = sum(
-        _interpretar_mes_cotravale(valor) is not None
+        _interpretar_mes_cootravale(valor) is not None
         for valor in linha.tolist()
     )
 
     return quantidade, meses
 
 
-def _localizar_cabecalho_cotravale(dataframe, nome_arquivo):
+def _localizar_cabecalho_cootravale(dataframe, nome_arquivo):
     for indice in range(dataframe.shape[0]):
-        quantidade_titulos, quantidade_meses = _pontuacao_cabecalho_cotravale(
+        quantidade_titulos, quantidade_meses = _pontuacao_cabecalho_cootravale(
             dataframe.iloc[indice]
         )
         if quantidade_titulos >= 3 and quantidade_meses >= 2:
@@ -224,17 +224,17 @@ def _localizar_cabecalho_cotravale(dataframe, nome_arquivo):
 
     raise ValueError(
         f"Nao foi possivel localizar o cabecalho mensal no arquivo "
-        f"cotravale '{nome_arquivo}'."
+        f"cootravale '{nome_arquivo}'."
     )
 
 
-def _localizar_colunas_fixadas_cotravale(linha_cabecalho):
+def _localizar_colunas_fixadas_cootravale(linha_cabecalho):
     indice_grupo = None
     indice_classificacao = None
     indice_descricao = None
 
     for indice, valor in enumerate(linha_cabecalho.tolist()):
-        texto = _normalizar_texto_comparacao_cotravale(valor)
+        texto = _normalizar_texto_comparacao_cootravale(valor)
 
         if texto == "GRUPO":
             indice_grupo = indice
@@ -245,38 +245,38 @@ def _localizar_colunas_fixadas_cotravale(linha_cabecalho):
 
     if indice_classificacao is None or indice_descricao is None:
         raise ValueError(
-            "O cotravale nao encontrou as colunas Classificacao e "
+            "O cootravale nao encontrou as colunas Classificacao e "
             "Descricao da Conta."
         )
 
     return indice_grupo, indice_classificacao, indice_descricao
 
 
-def _localizar_colunas_mensais_cotravale(linha_cabecalho):
+def _localizar_colunas_mensais_cootravale(linha_cabecalho):
     colunas = []
 
     for indice, valor in enumerate(linha_cabecalho.tolist()):
-        periodo = _interpretar_mes_cotravale(valor)
+        periodo = _interpretar_mes_cootravale(valor)
         if periodo is not None:
             ano, mes = periodo
             colunas.append({
                 "indice": indice,
                 "ano": ano,
                 "mes": mes,
-                "rotulo": _normalizar_texto_cotravale(valor),
+                "rotulo": _normalizar_texto_cootravale(valor),
             })
 
     colunas.sort(key=lambda item: (item["ano"], item["mes"], item["indice"]))
 
     if len(colunas) < 2:
         raise ValueError(
-            "O cotravale precisa de pelo menos duas colunas mensais."
+            "O cootravale precisa de pelo menos duas colunas mensais."
         )
 
     return colunas
 
 
-def _conta_eh_resultado_cotravale(
+def _conta_eh_resultado_cootravale(
     linha,
     indice_grupo,
     indice_classificacao,
@@ -294,7 +294,7 @@ def _conta_eh_resultado_cotravale(
     As colunas Grupo e Descricao da Conta nao interferem na classificacao
     entre patrimonial e resultado.
     """
-    classificacao = _normalizar_classificacao_cotravale(
+    classificacao = _normalizar_classificacao_cootravale(
         linha.iloc[indice_classificacao]
     )
 
@@ -309,7 +309,7 @@ def _conta_eh_resultado_cotravale(
     return int(primeiro_algarismo) >= 3
 
 
-def _extrair_registros_periodo_cotravale(
+def _extrair_registros_periodo_cootravale(
     dataframe_dados,
     indice_grupo,
     indice_classificacao,
@@ -337,24 +337,24 @@ def _extrair_registros_periodo_cotravale(
     periodo_e_janeiro = coluna_atual["mes"] == 1
 
     for _, linha in dataframe_dados.iterrows():
-        classificacao = _normalizar_classificacao_cotravale(
+        classificacao = _normalizar_classificacao_cootravale(
             linha.iloc[indice_classificacao]
         )
-        nome = _normalizar_texto_cotravale(
+        nome = _normalizar_texto_cootravale(
             linha.iloc[indice_descricao]
         )
 
         if not classificacao or not nome:
             continue
 
-        valor_mes_anterior = _converter_numero_cotravale(
+        valor_mes_anterior = _converter_numero_cootravale(
             linha.iloc[coluna_anterior["indice"]]
         )
-        valor_mes_atual = _converter_numero_cotravale(
+        valor_mes_atual = _converter_numero_cootravale(
             linha.iloc[coluna_atual["indice"]]
         )
 
-        conta_resultado = _conta_eh_resultado_cotravale(
+        conta_resultado = _conta_eh_resultado_cootravale(
             linha,
             indice_grupo,
             indice_classificacao,
@@ -400,9 +400,9 @@ def _extrair_registros_periodo_cotravale(
     return registros
 
 
-def _montar_dataframe_cotravale(registros):
+def _montar_dataframe_cootravale(registros):
     if not registros:
-        return pd.DataFrame(columns=COLUNAS_DESTINO_cotravale)
+        return pd.DataFrame(columns=COLUNAS_DESTINO_cootravale)
 
     dataframe = pd.DataFrame(registros)
 
@@ -421,24 +421,24 @@ def _montar_dataframe_cotravale(registros):
     dataframe["Débito"] = 0.0
     dataframe["Crédito"] = 0.0
 
-    return dataframe[COLUNAS_DESTINO_cotravale].copy()
+    return dataframe[COLUNAS_DESTINO_cootravale].copy()
 
 
-def transformar_balancete_cotravale(caminho_arquivo):
+def transformar_balancete_cootravale(caminho_arquivo):
     nome_arquivo = os.path.basename(caminho_arquivo)
     extensao = os.path.splitext(caminho_arquivo)[1].lower()
 
-    if extensao not in EXTENSOES_VALIDAS_cotravale:
+    if extensao not in EXTENSOES_VALIDAS_cootravale:
         raise ValueError(f"O arquivo '{nome_arquivo}' nao e um Excel valido.")
 
-    origem = _ler_primeira_aba_cotravale(caminho_arquivo)
-    indice_cabecalho = _localizar_cabecalho_cotravale(origem, nome_arquivo)
+    origem = _ler_primeira_aba_cootravale(caminho_arquivo)
+    indice_cabecalho = _localizar_cabecalho_cootravale(origem, nome_arquivo)
     linha_cabecalho = origem.iloc[indice_cabecalho]
 
     indice_grupo, indice_classificacao, indice_descricao = (
-        _localizar_colunas_fixadas_cotravale(linha_cabecalho)
+        _localizar_colunas_fixadas_cootravale(linha_cabecalho)
     )
-    colunas_mensais = _localizar_colunas_mensais_cotravale(linha_cabecalho)
+    colunas_mensais = _localizar_colunas_mensais_cootravale(linha_cabecalho)
     dados = origem.iloc[indice_cabecalho + 1:].copy()
     resultados = OrderedDict()
     saldos_resultado_anteriores = {}
@@ -447,7 +447,7 @@ def transformar_balancete_cotravale(caminho_arquivo):
         anterior = colunas_mensais[posicao - 1]
         atual = colunas_mensais[posicao]
 
-        registros = _extrair_registros_periodo_cotravale(
+        registros = _extrair_registros_periodo_cootravale(
             dados,
             indice_grupo,
             indice_classificacao,
@@ -459,18 +459,18 @@ def transformar_balancete_cotravale(caminho_arquivo):
 
         if registros:
             nome_aba = f"{atual['mes']:02d}"
-            resultados[nome_aba] = _montar_dataframe_cotravale(registros)
+            resultados[nome_aba] = _montar_dataframe_cootravale(registros)
 
     if not resultados:
         raise ValueError(
-            f"Nenhuma aba mensal foi gerada no arquivo cotravale "
+            f"Nenhuma aba mensal foi gerada no arquivo cootravale "
             f"'{nome_arquivo}'."
         )
 
     return resultados
 
 
-def _chave_ordenacao_aba_cotravale(nome_aba):
+def _chave_ordenacao_aba_cootravale(nome_aba):
     correspondencia = re.match(r"^(0[1-9]|1[0-2])", str(nome_aba))
     if correspondencia:
         return int(correspondencia.group(1)), str(nome_aba).casefold()
@@ -480,25 +480,25 @@ def _chave_ordenacao_aba_cotravale(nome_aba):
 def processar(lista_arquivos):
     if not lista_arquivos:
         raise ValueError(
-            "Nenhum arquivo foi selecionado para o sistema cotravale."
+            "Nenhum arquivo foi selecionado para o sistema cootravale."
         )
 
     arquivos_excel = [
         arquivo
         for arquivo in lista_arquivos
         if os.path.splitext(str(arquivo))[1].lower()
-        in EXTENSOES_VALIDAS_cotravale
+        in EXTENSOES_VALIDAS_cootravale
     ]
 
     if not arquivos_excel:
         raise ValueError(
-            "Nenhum arquivo Excel valido foi encontrado para o cotravale."
+            "Nenhum arquivo Excel valido foi encontrado para o cootravale."
         )
 
     consolidados = OrderedDict()
 
     for arquivo in arquivos_excel:
-        resultados_arquivo = transformar_balancete_cotravale(arquivo)
+        resultados_arquivo = transformar_balancete_cootravale(arquivo)
 
         for nome_aba, dataframe in resultados_arquivo.items():
             if nome_aba in consolidados:
@@ -511,14 +511,14 @@ def processar(lista_arquivos):
 
     resultados = OrderedDict()
 
-    for nome_aba in sorted(consolidados, key=_chave_ordenacao_aba_cotravale):
+    for nome_aba in sorted(consolidados, key=_chave_ordenacao_aba_cootravale):
         dataframe = consolidados[nome_aba]
         dataframe.reset_index(drop=True, inplace=True)
         resultados[nome_aba] = dataframe
 
     if not resultados:
         raise ValueError(
-            "Nenhum resultado foi gerado para o sistema cotravale."
+            "Nenhum resultado foi gerado para o sistema cootravale."
         )
 
     return resultados
